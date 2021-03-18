@@ -1,6 +1,6 @@
-# Brioche
+# Breeoche
 
-Brioche is a simple key/value storage service for study purpose.
+Breeoche is a simple key/value storage service for study purpose.
 
 ## Roadmap
 
