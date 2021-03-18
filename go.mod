@@ -1,4 +1,4 @@
-module github.com/Wregret/brioche
+module github.com/Wregret/breeoche
 
 go 1.15
 

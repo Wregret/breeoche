@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/Wregret/brioche/cmd"
+	"github.com/Wregret/breeoche/cmd"
 )
 
 func main() {

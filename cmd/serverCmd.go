@@ -10,10 +10,10 @@ var port int
 
 var serverCmd = &cobra.Command{
 	Use:   "server",
-	Short: "start brioche server",
-	Long:  "start brioche server to receive operation on storage",
+	Short: "start breeoche server",
+	Long:  "start breeoche server to receive operation on storage",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Fprintf(os.Stdout, "brioche server start on port: %d\n", port)
+		fmt.Fprintf(os.Stdout, "breeoche server start on port: %d\n", port)
 	},
 }
 
