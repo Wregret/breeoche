@@ -1,9 +1,9 @@
 package cmd
 
 import (
-	"fmt"
+	"github.com/Wregret/breeoche/server"
 	"github.com/spf13/cobra"
-	"os"
+	"strconv"
 )
 
 var port int
@@ -13,10 +13,11 @@ var serverCmd = &cobra.Command{
 	Short: "start breeoche server",
 	Long:  "start breeoche server to receive operation on storage",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Fprintf(os.Stdout, "breeoche server start on port: %d\n", port)
+		s := server.NewServer()
+		s.Start(strconv.Itoa(port))
 	},
 }
 
 func init() {
-	serverCmd.Flags().IntVarP(&port, "port", "p", 15213, "specify the port number of brioiche server")
+	serverCmd.Flags().IntVarP(&port, "port", "p", 15213, "specify the port number of breeoche server")
 }
