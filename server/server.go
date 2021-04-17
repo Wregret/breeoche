@@ -46,6 +46,7 @@ func (s *server) postHandler(w http.ResponseWriter, r *http.Request) {
 	key := getKey(r)
 	log.Printf("set key %s", key)
 
+	defer r.Body.Close()
 	value, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Printf("set key %s failed: %s", key, err)
@@ -56,13 +57,14 @@ func (s *server) postHandler(w http.ResponseWriter, r *http.Request) {
 
 	s.storage[key] = string(value)
 
-	w.Write(value)
+	w.Write(nil)
 }
 
 func (s *server) putHandler(w http.ResponseWriter, r *http.Request) {
 	key := getKey(r)
 	log.Printf("insert key %s", key)
 
+	defer r.Body.Close()
 	value, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Printf("insert key %s failed: %s", key, err)
@@ -74,12 +76,13 @@ func (s *server) putHandler(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.storage[key]; ok {
 		log.Printf("insert key %s failed: key exists", key)
 		w.WriteHeader(http.StatusConflict)
-		w.Write([]byte("key exists"))
+		w.Write([]byte(fmt.Sprintf("key %s exists", key)))
+		return
 	}
 
 	s.storage[key] = string(value)
 
-	w.Write(value)
+	w.Write(nil)
 }
 
 func (s *server) deleteHandler(w http.ResponseWriter, r *http.Request) {
@@ -107,6 +110,6 @@ func (s *server) Start(port string) {
 	r.HandleFunc("/key/{key}", s.putHandler).Methods(http.MethodPut)
 	r.HandleFunc("/key/{key}", s.deleteHandler).Methods(http.MethodDelete)
 	log.Println("start server on port: " + port)
-	http.Handle("/", r)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	//http.Handle("/", r)
+	log.Fatal(http.ListenAndServe(":"+port, r))
 }

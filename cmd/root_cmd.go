@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/Wregret/breeoche/cmd/client_cmd"
+	"github.com/Wregret/breeoche/cmd/server_cmd"
 	"github.com/spf13/cobra"
 	"os"
 )
@@ -20,5 +22,12 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.AddCommand(serverCmd)
+	rootCmd.AddCommand(server_cmd.ServerCmd)
+
+	rootCmd.AddCommand(client_cmd.PingCmd)
+
+	rootCmd.AddCommand(client_cmd.GetCmd)
+	rootCmd.AddCommand(client_cmd.SetCmd)
+	rootCmd.AddCommand(client_cmd.InsertCmd)
+	rootCmd.AddCommand(client_cmd.DeleteCmd)
 }

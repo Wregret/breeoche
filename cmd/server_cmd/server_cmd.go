@@ -1,4 +1,4 @@
-package cmd
+package server_cmd
 
 import (
 	"github.com/Wregret/breeoche/server"
@@ -8,7 +8,7 @@ import (
 
 var port int
 
-var serverCmd = &cobra.Command{
+var ServerCmd = &cobra.Command{
 	Use:   "server",
 	Short: "start breeoche server",
 	Long:  "start breeoche server to receive operation on storage",
@@ -19,5 +19,5 @@ var serverCmd = &cobra.Command{
 }
 
 func init() {
-	serverCmd.Flags().IntVarP(&port, "port", "p", 15213, "specify the port number of breeoche server")
+	ServerCmd.Flags().IntVarP(&port, "port", "p", 15213, "specify the port number of breeoche server")
 }
