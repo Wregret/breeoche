@@ -68,6 +68,29 @@ func (s *Store) Apply(cmd Command) error {
 	}
 }
 
+// Snapshot serializes the current state for Raft log compaction.
+func (s *Store) Snapshot() ([]byte, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return json.Marshal(s.data)
+}
+
+// RestoreSnapshot replaces the current state with the snapshot data.
+func (s *Store) RestoreSnapshot(data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(data) == 0 {
+		s.data = make(map[string]string)
+		return nil
+	}
+	var next map[string]string
+	if err := json.Unmarshal(data, &next); err != nil {
+		return err
+	}
+	s.data = next
+	return nil
+}
+
 // EncodeCommand serializes a command to bytes for Raft replication.
 func EncodeCommand(cmd Command) ([]byte, error) {
 	return json.Marshal(cmd)

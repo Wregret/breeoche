@@ -18,10 +18,11 @@ import (
 
 // Config configures a Breeoche server.
 type Config struct {
-	ID      string
-	Addr    string
-	Peers   map[string]string
-	DataDir string
+	ID                string
+	Addr              string
+	Peers             map[string]string
+	DataDir           string
+	SnapshotThreshold int
 }
 
 // Server hosts the KV API and Raft RPC endpoints.
@@ -33,6 +34,8 @@ type Server struct {
 	store   *kv.Store
 	raft    *raft.Raft
 	applyCh chan raft.ApplyMsg
+
+	snapshotThreshold int
 
 	applyMu      sync.Mutex
 	applyWaiters map[int]chan error
@@ -49,6 +52,9 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 	if cfg.DataDir == "" {
 		cfg.DataDir = "data"
+	}
+	if cfg.SnapshotThreshold == 0 {
+		cfg.SnapshotThreshold = 100
 	}
 
 	allPeers := make(map[string]string, len(cfg.Peers)+1)
@@ -80,14 +86,18 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 
 	s := &Server{
-		id:           cfg.ID,
-		addr:         cfg.Addr,
-		peers:        allPeers,
-		store:        kv.NewStore(),
-		raft:         r,
-		applyCh:      applyCh,
-		applyWaiters: map[int]chan error{},
-		applyResults: map[int]error{},
+		id:                cfg.ID,
+		addr:              cfg.Addr,
+		peers:             allPeers,
+		store:             kv.NewStore(),
+		raft:              r,
+		applyCh:           applyCh,
+		applyWaiters:      map[int]chan error{},
+		applyResults:      map[int]error{},
+		snapshotThreshold: cfg.SnapshotThreshold,
+	}
+	if err := s.restoreSnapshot(); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -106,6 +116,7 @@ func (s *Server) Start() error {
 	r.HandleFunc("/health", s.healthHandler).Methods(http.MethodGet)
 	r.HandleFunc("/raft/request-vote", s.requestVoteHandler).Methods(http.MethodPost)
 	r.HandleFunc("/raft/append-entries", s.appendEntriesHandler).Methods(http.MethodPost)
+	r.HandleFunc("/raft/install-snapshot", s.installSnapshotHandler).Methods(http.MethodPost)
 
 	log.Println("start server on: " + s.addr)
 	return http.ListenAndServe(s.addr, r)
@@ -284,6 +295,10 @@ func (s *Server) waitForApply(ctx context.Context, index int) error {
 
 func (s *Server) applyLoop() {
 	for msg := range s.applyCh {
+		if msg.Snapshot {
+			s.applySnapshot(msg)
+			continue
+		}
 		var applyErr error
 		cmd, err := kv.DecodeCommand(msg.Command)
 		if err != nil {
@@ -297,14 +312,52 @@ func (s *Server) applyLoop() {
 			s.applyMu.Unlock()
 			ch <- applyErr
 			close(ch)
-			continue
+		} else {
+			_, isLeader := s.raft.State()
+			if isLeader {
+				s.applyResults[msg.Index] = applyErr
+			}
+			s.applyMu.Unlock()
 		}
-		_, isLeader := s.raft.State()
-		if isLeader {
-			s.applyResults[msg.Index] = applyErr
-		}
-		s.applyMu.Unlock()
+
+		s.maybeSnapshot(msg.Index)
 	}
+}
+
+func (s *Server) applySnapshot(msg raft.ApplyMsg) {
+	err := s.store.RestoreSnapshot(msg.SnapshotData)
+	s.applyMu.Lock()
+	for idx, ch := range s.applyWaiters {
+		if idx <= msg.SnapshotIndex {
+			delete(s.applyWaiters, idx)
+			ch <- err
+			close(ch)
+		}
+	}
+	s.applyMu.Unlock()
+}
+
+func (s *Server) maybeSnapshot(index int) {
+	if s.snapshotThreshold <= 0 {
+		return
+	}
+	logOffset := s.raft.LogOffset()
+	if index-logOffset < s.snapshotThreshold {
+		return
+	}
+	data, err := s.store.Snapshot()
+	if err != nil {
+		return
+	}
+	_ = s.raft.Snapshot(index, data)
+}
+
+func (s *Server) restoreSnapshot() error {
+	snap := s.raft.SnapshotState()
+	if snap.LastIncludedIndex == 0 {
+		return nil
+	}
+	return s.store.RestoreSnapshot(snap.Data)
 }
 
 func (s *Server) requestVoteHandler(w http.ResponseWriter, r *http.Request) {
@@ -326,6 +379,17 @@ func (s *Server) appendEntriesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply := s.raft.HandleAppendEntries(args)
+	writeJSON(w, reply)
+}
+
+func (s *Server) installSnapshotHandler(w http.ResponseWriter, r *http.Request) {
+	var args raft.InstallSnapshotArgs
+	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("bad request"))
+		return
+	}
+	reply := s.raft.HandleInstallSnapshot(args)
 	writeJSON(w, reply)
 }
 

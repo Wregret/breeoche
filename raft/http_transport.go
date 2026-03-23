@@ -54,6 +54,19 @@ func (t *HTTPTransport) AppendEntries(ctx context.Context, peerID string, args A
 	return reply, nil
 }
 
+func (t *HTTPTransport) InstallSnapshot(ctx context.Context, peerID string, args InstallSnapshotArgs) (InstallSnapshotReply, error) {
+	addr, ok := t.peers[peerID]
+	if !ok {
+		return InstallSnapshotReply{}, fmt.Errorf("unknown peer %s", peerID)
+	}
+	url := fmt.Sprintf("http://%s/raft/install-snapshot", addr)
+	var reply InstallSnapshotReply
+	if err := t.postJSON(ctx, url, args, &reply); err != nil {
+		return InstallSnapshotReply{}, err
+	}
+	return reply, nil
+}
+
 func (t *HTTPTransport) postJSON(ctx context.Context, url string, reqBody interface{}, respBody interface{}) error {
 	data, err := json.Marshal(reqBody)
 	if err != nil {

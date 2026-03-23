@@ -51,6 +51,19 @@ func (t *LocalTransport) AppendEntries(ctx context.Context, peerID string, args 
 	return peer.HandleAppendEntries(args), nil
 }
 
+func (t *LocalTransport) InstallSnapshot(ctx context.Context, peerID string, args InstallSnapshotArgs) (InstallSnapshotReply, error) {
+	peer, err := t.getPeer(peerID)
+	if err != nil {
+		return InstallSnapshotReply{}, err
+	}
+	select {
+	case <-ctx.Done():
+		return InstallSnapshotReply{}, ctx.Err()
+	default:
+	}
+	return peer.HandleInstallSnapshot(args), nil
+}
+
 func (t *LocalTransport) getPeer(peerID string) (*Raft, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()

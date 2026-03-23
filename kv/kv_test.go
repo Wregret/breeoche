@@ -49,3 +49,39 @@ func TestCommandEncodeDecode(t *testing.T) {
 		t.Fatalf("expected %#v, got %#v", cmd, decoded)
 	}
 }
+
+func TestStoreSnapshotRestore(t *testing.T) {
+	s := NewStore()
+	if err := s.Apply(Command{Op: OpSet, Key: "a", Value: "1"}); err != nil {
+		t.Fatalf("apply set failed: %v", err)
+	}
+	if err := s.Apply(Command{Op: OpSet, Key: "b", Value: "2"}); err != nil {
+		t.Fatalf("apply set failed: %v", err)
+	}
+	snap, err := s.Snapshot()
+	if err != nil {
+		t.Fatalf("snapshot failed: %v", err)
+	}
+
+	next := NewStore()
+	if err := next.RestoreSnapshot(snap); err != nil {
+		t.Fatalf("restore snapshot failed: %v", err)
+	}
+	if val, ok := next.Get("a"); !ok || val != "1" {
+		t.Fatalf("expected key a to restore, got %q", val)
+	}
+	if val, ok := next.Get("b"); !ok || val != "2" {
+		t.Fatalf("expected key b to restore, got %q", val)
+	}
+}
+
+func TestStoreRestoreEmptySnapshotClearsState(t *testing.T) {
+	s := NewStore()
+	_ = s.Apply(Command{Op: OpSet, Key: "a", Value: "1"})
+	if err := s.RestoreSnapshot(nil); err != nil {
+		t.Fatalf("restore empty snapshot failed: %v", err)
+	}
+	if _, ok := s.Get("a"); ok {
+		t.Fatalf("expected store to be cleared")
+	}
+}

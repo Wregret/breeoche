@@ -55,10 +55,29 @@ type AppendEntriesReply struct {
 	ConflictTerm  int
 }
 
+// InstallSnapshotArgs is sent by the leader to install a snapshot on a follower.
+type InstallSnapshotArgs struct {
+	Term              int
+	LeaderID          string
+	LastIncludedIndex int
+	LastIncludedTerm  int
+	Data              []byte
+}
+
+// InstallSnapshotReply is the response for InstallSnapshot RPC.
+type InstallSnapshotReply struct {
+	Term int
+}
+
 // ApplyMsg delivers committed log entries to the state machine.
 type ApplyMsg struct {
 	Index   int
 	Command []byte
+	// Snapshot indicates this ApplyMsg carries a snapshot instead of a log entry.
+	Snapshot      bool
+	SnapshotData  []byte
+	SnapshotIndex int
+	SnapshotTerm  int
 }
 
 // PersistentState is the part of Raft state that must survive crashes.

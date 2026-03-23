@@ -6,4 +6,5 @@ import "context"
 type Transport interface {
 	RequestVote(ctx context.Context, peerID string, args RequestVoteArgs) (RequestVoteReply, error)
 	AppendEntries(ctx context.Context, peerID string, args AppendEntriesArgs) (AppendEntriesReply, error)
+	InstallSnapshot(ctx context.Context, peerID string, args InstallSnapshotArgs) (InstallSnapshotReply, error)
 }

@@ -9,11 +9,11 @@
 
 ## Raft Details
 - Persistent state: `currentTerm`, `votedFor`, `log`, `commitIndex`, and `snapshot` are stored in JSON at `data/<node-id>/raft.json`.
-- RPCs: `RequestVote` and `AppendEntries` over HTTP JSON.
+- RPCs: `RequestVote`, `AppendEntries`, and `InstallSnapshot` over HTTP JSON.
 - Leader election: randomized timeouts with self-vote; majority wins.
 - Log replication: leader tracks `nextIndex` and `matchIndex` for followers.
-- Log compaction: manual snapshots via `Snapshot(index, data)` trim the log.
-- Apply path: committed entries are delivered on `applyCh` and applied to the KV store.
+- Log compaction: snapshots trim the log. The server triggers snapshots automatically based on entry count; `Snapshot(index, data)` is available for manual compaction.
+- Apply path: committed entries are delivered on `applyCh` and applied to the KV store. Snapshot installs send `ApplyMsg` with `Snapshot=true`.
 - Status: `GET /health` returns a Raft status snapshot (`id`, `term`, `state`, `leader_id`, `commit_index`, `last_applied`, `last_log_index`).
 - Clock abstraction: Raft accepts a `Clock` implementation so tests can use a deterministic `FakeClock`.
 
@@ -29,20 +29,22 @@
 - `raft/cluster_test.go`: in-memory transport tests for leader election and replication.
 - `raft/clock_test.go`: deterministic election and heartbeat tests using `FakeClock`.
 - `raft/snapshot_test.go`: snapshot/log compaction tests.
+- `raft/install_snapshot_test.go`: InstallSnapshot apply tests.
 - `kv/kv_test.go`: state machine tests (set/insert/delete + codec).
 - `server/server_test.go`: single-node integration tests with Raft apply.
 - `server/health_test.go`: health endpoint tests.
+- `server/snapshot_test.go`: automatic snapshot trigger tests.
 
 Run tests with:
 - `go test ./...`
 
 ## Extending the System
-- Add automatic snapshotting + InstallSnapshot RPC.
+- Add chunked/streamed snapshot transfer for large snapshots.
 - Add new KV operations: extend `kv.Command`, update `Store.Apply`, and adjust HTTP handlers.
 - Add log compaction triggers based on size/age.
 - Add linearizable reads: implement a read-index or lease-based read path in `server`.
 
 ## Operational Caveats
-- Snapshots are manual; there is no InstallSnapshot RPC yet.
+- InstallSnapshot sends the entire snapshot in one RPC (no chunking/streaming yet).
 - Reads are leader-only (followers redirect).
 - Time-based behavior (elections, heartbeats) is not yet fully covered by a fake clock.

@@ -9,11 +9,12 @@ import (
 )
 
 var (
-	port    int
-	host    string
-	nodeID  string
-	peers   string
-	dataDir string
+	port              int
+	host              string
+	nodeID            string
+	peers             string
+	dataDir           string
+	snapshotThreshold int
 )
 
 var ServerCmd = &cobra.Command{
@@ -31,10 +32,11 @@ var ServerCmd = &cobra.Command{
 		}
 
 		s, err := server.NewServer(server.Config{
-			ID:      nodeID,
-			Addr:    addr,
-			Peers:   peerMap,
-			DataDir: dataDir,
+			ID:                nodeID,
+			Addr:              addr,
+			Peers:             peerMap,
+			DataDir:           dataDir,
+			SnapshotThreshold: snapshotThreshold,
 		})
 		if err != nil {
 			return err
@@ -49,6 +51,7 @@ func init() {
 	ServerCmd.Flags().StringVar(&nodeID, "id", "", "unique node id")
 	ServerCmd.Flags().StringVar(&peers, "peers", "", "comma-separated list of id=host:port")
 	ServerCmd.Flags().StringVar(&dataDir, "data-dir", "data", "directory for raft state")
+	ServerCmd.Flags().IntVar(&snapshotThreshold, "snapshot-threshold", 100, "entries between automatic snapshots")
 }
 
 func parsePeers(raw string) (map[string]string, error) {

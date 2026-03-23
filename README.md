@@ -8,6 +8,7 @@ Breeoche is a lightweight key/value store built for learning distributed systems
 - Simple HTTP API + CLI
 - Local, file-backed Raft state (`data/<node-id>/raft.json`)
 - Health endpoint with Raft status (`GET /health`)
+- Automatic log compaction via snapshots
 
 ## Docs
 - User guide: `docs/USER_GUIDE.md`
@@ -43,6 +44,9 @@ Terminal 3:
 ./breeoche server --id n3 --host 127.0.0.1 --port 15215 --peers n1=127.0.0.1:15213,n2=127.0.0.1:15214
 ```
 
+## Server Config Notes
+- Automatic snapshots are entry-count based. Use `--snapshot-threshold` to change how many new log entries trigger a snapshot (default: 100).
+
 ## CLI Commands
 - `ping` — health check
 - `get <key>` — read value
@@ -66,11 +70,11 @@ All commands accept `--addr` (defaults to `localhost:15213`).
 ```
 
 ## Limitations
-- Manual snapshots only; no automatic compaction or InstallSnapshot RPC.
+- Snapshot compaction is entry-count based; no size/time policy yet.
+- InstallSnapshot exists but snapshots are not chunked/streamed.
 - Leader-only reads; no read-index or lease reads yet.
 - Static cluster membership only; no dynamic reconfiguration.
 - No authentication, TLS, or access control.
-- No persistence of the KV state machine beyond Raft log replay.
 - No metrics endpoint beyond `/health`.
 - No fault-injection or chaos testing built in.
 - No WAL or fsync guarantees beyond JSON file writes.

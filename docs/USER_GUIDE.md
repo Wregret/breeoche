@@ -17,6 +17,9 @@ Breeoche is a small key/value service backed by a Raft log. Writes go through th
 
 Each node writes Raft state to `data/<node-id>/raft.json` by default.
 
+## Snapshotting
+Snapshots are taken automatically after a configurable number of new log entries. Use `--snapshot-threshold` to tune the interval (default: 100).
+
 ## CLI Usage
 1. Ping:
    `./breeoche ping --addr 127.0.0.1:15213`
@@ -40,11 +43,11 @@ If you point the client at a follower, it will follow HTTP redirects to the curr
 - `DELETE /key/{key}`
 
 ## Limitations
-- Manual snapshots only; no automatic compaction or InstallSnapshot RPC.
+- Snapshot compaction is entry-count based; no size/time policy yet.
+- InstallSnapshot exists but snapshots are not chunked/streamed.
 - Leader-only reads; no read-index or lease reads yet.
 - Static cluster membership only; no dynamic reconfiguration.
 - No authentication, TLS, or access control.
-- No persistence of the KV state machine beyond Raft log replay.
 - No metrics endpoint beyond `/health`.
 - No fault-injection or chaos testing built in.
 - No WAL or fsync guarantees beyond JSON file writes.
@@ -53,4 +56,4 @@ If you point the client at a follower, it will follow HTTP redirects to the curr
 
 ## Operational Notes
 - Reads are served only by the leader to keep the behavior simple and consistent.
-- Snapshots are manual; no automatic log compaction yet, so long-running clusters will accumulate log entries unless compacted explicitly.
+- Snapshots are automatic by entry count; there is no time/size based policy yet.

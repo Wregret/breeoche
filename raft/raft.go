@@ -141,6 +141,20 @@ func (r *Raft) LeaderID() string {
 	return r.leaderID
 }
 
+// SnapshotState returns the current snapshot metadata.
+func (r *Raft) SnapshotState() Snapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.snapshot
+}
+
+// LogOffset returns the current log offset (last included index).
+func (r *Raft) LogOffset() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.logOffset
+}
+
 // Run starts background goroutines for elections and heartbeats.
 func (r *Raft) Run() {
 	go r.runElectionTimer()
@@ -464,6 +478,55 @@ func (r *Raft) HandleAppendEntries(args AppendEntriesArgs) AppendEntriesReply {
 	return reply
 }
 
+// HandleInstallSnapshot processes an InstallSnapshot RPC.
+func (r *Raft) HandleInstallSnapshot(args InstallSnapshotArgs) InstallSnapshotReply {
+	r.mu.Lock()
+	reply := InstallSnapshotReply{Term: r.currentTerm}
+	if args.Term < r.currentTerm {
+		r.mu.Unlock()
+		return reply
+	}
+	if args.Term > r.currentTerm {
+		r.becomeFollowerLocked(args.Term)
+	} else if r.state != Follower {
+		r.state = Follower
+		r.persistLocked()
+	}
+	r.leaderID = args.LeaderID
+	r.resetElectionTimerLocked()
+
+	if args.LastIncludedIndex <= r.snapshot.LastIncludedIndex {
+		reply.Term = r.currentTerm
+		r.mu.Unlock()
+		return reply
+	}
+
+	r.snapshot = Snapshot{
+		LastIncludedIndex: args.LastIncludedIndex,
+		LastIncludedTerm:  args.LastIncludedTerm,
+		Data:              args.Data,
+	}
+	r.logOffset = args.LastIncludedIndex
+	r.log = []LogEntry{{Term: args.LastIncludedTerm}}
+	if r.commitIndex < args.LastIncludedIndex {
+		r.commitIndex = args.LastIncludedIndex
+	}
+	if r.lastApplied < args.LastIncludedIndex {
+		r.lastApplied = args.LastIncludedIndex
+	}
+	_ = r.persistLocked()
+	reply.Term = r.currentTerm
+	r.mu.Unlock()
+
+	r.applyCh <- ApplyMsg{
+		Snapshot:      true,
+		SnapshotData:  args.Data,
+		SnapshotIndex: args.LastIncludedIndex,
+		SnapshotTerm:  args.LastIncludedTerm,
+	}
+	return reply
+}
+
 func (r *Raft) broadcastAppendEntries() {
 	r.mu.Lock()
 	if r.state != Leader {
@@ -498,8 +561,9 @@ func (r *Raft) sendAppendEntries(peerID string) {
 		r.nextIndex[peerID] = nextIdx
 	}
 	if nextIdx <= r.logOffset {
-		nextIdx = r.logOffset + 1
-		r.nextIndex[peerID] = nextIdx
+		r.mu.Unlock()
+		r.sendInstallSnapshot(peerID)
+		return
 	}
 	prevIdx := nextIdx - 1
 	prevTerm := r.termAt(prevIdx)
@@ -521,6 +585,50 @@ func (r *Raft) sendAppendEntries(peerID string) {
 		return
 	}
 	r.handleAppendEntriesReply(peerID, args, reply)
+}
+
+func (r *Raft) sendInstallSnapshot(peerID string) {
+	if r.transport == nil {
+		return
+	}
+
+	r.mu.Lock()
+	if r.state != Leader {
+		r.mu.Unlock()
+		return
+	}
+	snap := r.snapshot
+	args := InstallSnapshotArgs{
+		Term:              r.currentTerm,
+		LeaderID:          r.id,
+		LastIncludedIndex: snap.LastIncludedIndex,
+		LastIncludedTerm:  snap.LastIncludedTerm,
+		Data:              append([]byte(nil), snap.Data...),
+	}
+	r.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), r.heartbeatInterval)
+	defer cancel()
+	reply, err := r.transport.InstallSnapshot(ctx, peerID, args)
+	if err != nil {
+		return
+	}
+	r.handleInstallSnapshotReply(peerID, args, reply)
+}
+
+func (r *Raft) handleInstallSnapshotReply(peerID string, args InstallSnapshotArgs, reply InstallSnapshotReply) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.state != Leader || args.Term != r.currentTerm {
+		return
+	}
+	if reply.Term > r.currentTerm {
+		r.becomeFollowerLocked(reply.Term)
+		return
+	}
+	r.matchIndex[peerID] = args.LastIncludedIndex
+	r.nextIndex[peerID] = args.LastIncludedIndex + 1
 }
 
 func (r *Raft) handleAppendEntriesReply(peerID string, args AppendEntriesArgs, reply AppendEntriesReply) {
