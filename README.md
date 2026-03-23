@@ -5,7 +5,7 @@ Breeoche is a lightweight key/value store built for learning distributed systems
 ## Highlights
 - Raft-based replication for writes
 - Leader-only reads (followers redirect)
-- Simple HTTP API + CLI
+- net/rpc API (default) + HTTP compatibility + CLI
 - net/rpc API (default) with HTTP compatibility
 - Local, file-backed Raft state (`data/<node-id>/raft.json`)
 - Health endpoint with Raft status (`GET /health`)
