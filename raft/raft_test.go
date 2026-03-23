@@ -57,6 +57,29 @@ func TestRequestVoteGrantsWhenUpToDate(t *testing.T) {
 	}
 }
 
+func TestRequestVoteRejectsStaleLog(t *testing.T) {
+	r := newTestRaft("n1")
+	r.currentTerm = 2
+	r.log = []LogEntry{{Term: 0}, {Term: 1}, {Term: 2}}
+
+	reply := r.HandleRequestVote(RequestVoteArgs{
+		Term:         3,
+		CandidateID:  "n2",
+		LastLogIndex: 1,
+		LastLogTerm:  1,
+	})
+
+	if reply.VoteGranted {
+		t.Fatalf("expected vote denied for stale log")
+	}
+	if r.currentTerm != 3 {
+		t.Fatalf("expected term updated to 3")
+	}
+	if r.votedFor != "" {
+		t.Fatalf("expected votedFor to remain empty")
+	}
+}
+
 func TestLeaderStepsDownOnHigherTermRequestVote(t *testing.T) {
 	r := newTestRaft("n1")
 	r.state = Leader
@@ -126,6 +149,29 @@ func TestAppendEntriesConflictAndAppend(t *testing.T) {
 	}
 }
 
+func TestAppendEntriesReturnsConflictHints(t *testing.T) {
+	r := newTestRaft("n1")
+	r.currentTerm = 2
+	r.log = []LogEntry{{Term: 0}, {Term: 1}, {Term: 2}, {Term: 2}}
+
+	reply := r.HandleAppendEntries(AppendEntriesArgs{
+		Term:         2,
+		LeaderID:     "n2",
+		PrevLogIndex: 3,
+		PrevLogTerm:  1,
+	})
+
+	if reply.Success {
+		t.Fatalf("expected append failure")
+	}
+	if reply.ConflictTerm != 2 {
+		t.Fatalf("expected conflict term 2, got %d", reply.ConflictTerm)
+	}
+	if reply.ConflictIndex != 2 {
+		t.Fatalf("expected conflict index 2, got %d", reply.ConflictIndex)
+	}
+}
+
 func TestCandidateStepsDownOnHigherTermAppendEntries(t *testing.T) {
 	r := newTestRaft("n1")
 	r.state = Candidate
@@ -172,6 +218,29 @@ func TestLeaderCommitIndexAdvancesWithMajority(t *testing.T) {
 
 	if r.commitIndex != 2 {
 		t.Fatalf("expected commitIndex 2, got %d", r.commitIndex)
+	}
+}
+
+func TestLeaderCommitSkipsOlderTermEntries(t *testing.T) {
+	r := newTestRaft("n1")
+	r.state = Leader
+	r.currentTerm = 3
+	r.log = []LogEntry{{Term: 0}, {Term: 1}, {Term: 2}, {Term: 2}}
+	r.commitIndex = 0
+	r.peers = map[string]string{
+		"n2": "",
+		"n3": "",
+	}
+	r.matchIndex = map[string]int{
+		"n1": 3,
+		"n2": 3,
+		"n3": 3,
+	}
+
+	r.advanceCommitIndex()
+
+	if r.commitIndex != 0 {
+		t.Fatalf("expected commitIndex to remain 0, got %d", r.commitIndex)
 	}
 }
 
