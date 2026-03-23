@@ -80,6 +80,26 @@ func TestRequestVoteRejectsStaleLog(t *testing.T) {
 	}
 }
 
+func TestRequestVoteDeniesSecondVoteSameTerm(t *testing.T) {
+	r := newTestRaft("n1")
+	r.currentTerm = 2
+	r.votedFor = "n2"
+
+	reply := r.HandleRequestVote(RequestVoteArgs{
+		Term:         2,
+		CandidateID:  "n3",
+		LastLogIndex: 0,
+		LastLogTerm:  0,
+	})
+
+	if reply.VoteGranted {
+		t.Fatalf("expected vote denied due to prior vote")
+	}
+	if r.votedFor != "n2" {
+		t.Fatalf("expected votedFor to remain n2")
+	}
+}
+
 func TestLeaderStepsDownOnHigherTermRequestVote(t *testing.T) {
 	r := newTestRaft("n1")
 	r.state = Leader
@@ -166,6 +186,26 @@ func TestAppendEntriesReturnsConflictHints(t *testing.T) {
 	}
 	if reply.ConflictTerm != 2 {
 		t.Fatalf("expected conflict term 2, got %d", reply.ConflictTerm)
+	}
+	if reply.ConflictIndex != 2 {
+		t.Fatalf("expected conflict index 2, got %d", reply.ConflictIndex)
+	}
+}
+
+func TestAppendEntriesRejectsMissingPrevIndex(t *testing.T) {
+	r := newTestRaft("n1")
+	r.currentTerm = 2
+	r.log = []LogEntry{{Term: 0}, {Term: 1}}
+
+	reply := r.HandleAppendEntries(AppendEntriesArgs{
+		Term:         2,
+		LeaderID:     "n2",
+		PrevLogIndex: 5,
+		PrevLogTerm:  1,
+	})
+
+	if reply.Success {
+		t.Fatalf("expected append failure")
 	}
 	if reply.ConflictIndex != 2 {
 		t.Fatalf("expected conflict index 2, got %d", reply.ConflictIndex)
@@ -262,5 +302,25 @@ func TestStartAppendsOnlyOnLeader(t *testing.T) {
 	}
 	if index != r.lastLogIndex() {
 		t.Fatalf("expected index %d, got %d", r.lastLogIndex(), index)
+	}
+}
+
+func TestStartUpdatesIndexes(t *testing.T) {
+	r := newTestRaft("n1")
+	r.state = Leader
+	r.currentTerm = 2
+	r.peers = map[string]string{
+		"n2": "",
+	}
+
+	index, _, ok := r.Start([]byte("set x 1"))
+	if !ok {
+		t.Fatalf("expected leader start")
+	}
+	if r.matchIndex["n1"] != index {
+		t.Fatalf("expected matchIndex updated, got %d", r.matchIndex["n1"])
+	}
+	if r.nextIndex["n1"] != index+1 {
+		t.Fatalf("expected nextIndex updated, got %d", r.nextIndex["n1"])
 	}
 }
