@@ -26,7 +26,7 @@
 ## Tests
 - `raft/raft_test.go`: core Raft logic tests (vote rules, append conflict, commit rules, Start behavior).
 - `raft/cluster_test.go`: in-memory transport tests for leader election and replication.
-- `raft/clock_test.go`: deterministic election test using `FakeClock`.
+- `raft/clock_test.go`: deterministic election and heartbeat tests using `FakeClock`.
 - `kv/kv_test.go`: state machine tests (set/insert/delete + codec).
 - `server/server_test.go`: single-node integration tests with Raft apply.
 - `server/health_test.go`: health endpoint tests.
