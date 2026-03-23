@@ -14,6 +14,7 @@
 - Log replication: leader tracks `nextIndex` and `matchIndex` for followers.
 - Apply path: committed entries are delivered on `applyCh` and applied to the KV store.
 - Status: `GET /health` returns a Raft status snapshot (`id`, `term`, `state`, `leader_id`, `commit_index`, `last_applied`, `last_log_index`).
+- Clock abstraction: Raft accepts a `Clock` implementation so tests can use a deterministic `FakeClock`.
 
 ## Server Flow
 1. External HTTP write arrives.
@@ -25,6 +26,7 @@
 ## Tests
 - `raft/raft_test.go`: core Raft logic tests (vote rules, append conflict, commit rules, Start behavior).
 - `raft/cluster_test.go`: in-memory transport tests for leader election and replication.
+- `raft/clock_test.go`: deterministic election test using `FakeClock`.
 - `kv/kv_test.go`: state machine tests (set/insert/delete + codec).
 - `server/server_test.go`: single-node integration tests with Raft apply.
 - `server/health_test.go`: health endpoint tests.
@@ -40,4 +42,4 @@ Run tests with:
 ## Operational Caveats
 - No snapshotting or compaction yet; logs can grow without bound.
 - Reads are leader-only (followers redirect).
-- Time-based behavior (elections, heartbeats) is not yet covered by a fake clock.
+- Time-based behavior (elections, heartbeats) is not yet fully covered by a fake clock.

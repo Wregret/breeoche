@@ -71,4 +71,5 @@ type Config struct {
 	ApplyCh           chan ApplyMsg
 	ElectionTimeout   int // milliseconds
 	HeartbeatInterval int // milliseconds
+	Clock             Clock
 }

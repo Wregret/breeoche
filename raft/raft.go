@@ -21,6 +21,7 @@ type Raft struct {
 
 	transport Transport
 	storage   Storage
+	clock     Clock
 
 	state       State
 	currentTerm int
@@ -74,11 +75,17 @@ func NewRaft(cfg Config) (*Raft, error) {
 		state.Log = []LogEntry{{Term: 0}}
 	}
 
+	clock := cfg.Clock
+	if clock == nil {
+		clock = realClock{}
+	}
+
 	r := &Raft{
 		id:                cfg.ID,
 		peers:             cfg.Peers,
 		transport:         cfg.Transport,
 		storage:           storage,
+		clock:             clock,
 		state:             Follower,
 		currentTerm:       state.CurrentTerm,
 		votedFor:          state.VotedFor,
@@ -217,21 +224,21 @@ func (r *Raft) HandleRequestVote(args RequestVoteArgs) RequestVoteReply {
 func (r *Raft) runElectionTimer() {
 	for {
 		timeout := r.randomizedElectionTimeout()
-		timer := time.NewTimer(timeout)
+		timer := r.clock.NewTimer(timeout)
 		select {
-		case <-timer.C:
+		case <-timer.C():
 			r.startElection()
 		case <-r.resetElectionCh:
 			if !timer.Stop() {
 				select {
-				case <-timer.C:
+				case <-timer.C():
 				default:
 				}
 			}
 		case <-r.stopCh:
 			if !timer.Stop() {
 				select {
-				case <-timer.C:
+				case <-timer.C():
 				default:
 				}
 			}
@@ -241,11 +248,11 @@ func (r *Raft) runElectionTimer() {
 }
 
 func (r *Raft) runHeartbeatLoop() {
-	ticker := time.NewTicker(r.heartbeatInterval)
+	ticker := r.clock.NewTicker(r.heartbeatInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-ticker.C:
+		case <-ticker.C():
 			r.broadcastAppendEntries()
 		case <-r.stopCh:
 			return
