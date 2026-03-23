@@ -40,7 +40,7 @@ If you point the client at a follower, it will follow HTTP redirects to the curr
 - `DELETE /key/{key}`
 
 ## Limitations
-- No snapshots or log compaction; Raft logs grow without bound.
+- Manual snapshots only; no automatic compaction or InstallSnapshot RPC.
 - Leader-only reads; no read-index or lease reads yet.
 - Static cluster membership only; no dynamic reconfiguration.
 - No authentication, TLS, or access control.
@@ -53,4 +53,4 @@ If you point the client at a follower, it will follow HTTP redirects to the curr
 
 ## Operational Notes
 - Reads are served only by the leader to keep the behavior simple and consistent.
-- No snapshots or log compaction yet, so long-running clusters will accumulate log entries.
+- Snapshots are manual; no automatic log compaction yet, so long-running clusters will accumulate log entries unless compacted explicitly.

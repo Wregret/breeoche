@@ -1,8 +1,8 @@
 # TODO
 
 ## Reliability and Correctness
+- Add automatic snapshotting and InstallSnapshot RPC to keep followers in sync.
 - Add deterministic Raft integration tests (fake clock + in-memory transport).
-- Add snapshotting and log compaction to bound log growth.
 - Add install-time config validation for cluster membership.
 
 ## Performance and Operations

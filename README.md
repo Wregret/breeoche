@@ -66,7 +66,7 @@ All commands accept `--addr` (defaults to `localhost:15213`).
 ```
 
 ## Limitations
-- No snapshots or log compaction; Raft logs grow without bound.
+- Manual snapshots only; no automatic compaction or InstallSnapshot RPC.
 - Leader-only reads; no read-index or lease reads yet.
 - Static cluster membership only; no dynamic reconfiguration.
 - No authentication, TLS, or access control.

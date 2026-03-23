@@ -15,6 +15,13 @@ type LogEntry struct {
 	Command []byte
 }
 
+// Snapshot holds compacted state up to LastIncludedIndex.
+type Snapshot struct {
+	LastIncludedIndex int
+	LastIncludedTerm  int
+	Data              []byte
+}
+
 // RequestVoteArgs is the request for a vote during elections.
 type RequestVoteArgs struct {
 	Term         int
@@ -60,6 +67,7 @@ type PersistentState struct {
 	VotedFor    string
 	Log         []LogEntry
 	CommitIndex int
+	Snapshot    Snapshot
 }
 
 // Config configures a Raft node.

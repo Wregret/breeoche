@@ -9,7 +9,8 @@ import (
 )
 
 var (
-	ErrNotLeader = errors.New("raft: not leader")
+	ErrNotLeader            = errors.New("raft: not leader")
+	ErrSnapshotNotCommitted = errors.New("raft: snapshot index not committed")
 )
 
 // Raft is a single Raft node.
@@ -30,6 +31,8 @@ type Raft struct {
 
 	commitIndex int
 	lastApplied int
+	logOffset   int
+	snapshot    Snapshot
 
 	nextIndex  map[string]int
 	matchIndex map[string]int
@@ -72,7 +75,10 @@ func NewRaft(cfg Config) (*Raft, error) {
 	}
 	if len(state.Log) == 0 {
 		// Index 0 is a sentinel entry to simplify boundary checks.
-		state.Log = []LogEntry{{Term: 0}}
+		state.Log = []LogEntry{{Term: state.Snapshot.LastIncludedTerm}}
+	}
+	if state.Snapshot.LastIncludedIndex > 0 && state.Log[0].Term != state.Snapshot.LastIncludedTerm {
+		state.Log[0].Term = state.Snapshot.LastIncludedTerm
 	}
 
 	clock := cfg.Clock
@@ -92,6 +98,8 @@ func NewRaft(cfg Config) (*Raft, error) {
 		log:               state.Log,
 		commitIndex:       state.CommitIndex,
 		lastApplied:       0,
+		logOffset:         state.Snapshot.LastIncludedIndex,
+		snapshot:          state.Snapshot,
 		nextIndex:         map[string]int{},
 		matchIndex:        map[string]int{},
 		applyCh:           cfg.ApplyCh,
@@ -103,8 +111,14 @@ func NewRaft(cfg Config) (*Raft, error) {
 		rand:              rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 
+	if r.commitIndex < r.logOffset {
+		r.commitIndex = r.logOffset
+	}
 	if r.commitIndex > r.lastLogIndex() {
 		r.commitIndex = r.lastLogIndex()
+	}
+	if r.lastApplied < r.logOffset {
+		r.lastApplied = r.logOffset
 	}
 	if r.lastApplied > r.commitIndex {
 		r.lastApplied = r.commitIndex
@@ -162,6 +176,51 @@ func (r *Raft) Start(command []byte) (int, int, bool) {
 	r.advanceCommitIndex()
 	r.broadcastAppendEntries()
 	return index, term, true
+}
+
+// Snapshot compacts the log up to the provided index and stores snapshot data.
+func (r *Raft) Snapshot(index int, data []byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if index <= r.logOffset {
+		return nil
+	}
+	if index > r.commitIndex || index > r.lastLogIndex() {
+		return ErrSnapshotNotCommitted
+	}
+
+	term := r.termAt(index)
+	if term < 0 {
+		return ErrSnapshotNotCommitted
+	}
+
+	oldOffset := r.logOffset
+	sliceStart := index + 1 - oldOffset
+	newLog := make([]LogEntry, 0, r.lastLogIndex()-index+1)
+	newLog = append(newLog, LogEntry{Term: term})
+	if sliceStart < len(r.log) {
+		newLog = append(newLog, r.log[sliceStart:]...)
+	}
+
+	r.log = newLog
+	r.logOffset = index
+	r.snapshot = Snapshot{LastIncludedIndex: index, LastIncludedTerm: term, Data: data}
+	if r.commitIndex < index {
+		r.commitIndex = index
+	}
+	if r.lastApplied < index {
+		r.lastApplied = index
+	}
+
+	for idx, ch := range r.notifyCh {
+		if idx <= index {
+			delete(r.notifyCh, idx)
+			close(ch)
+		}
+	}
+
+	return r.persistLocked()
 }
 
 // WaitForCommit blocks until the given index is committed or context expires.
@@ -353,11 +412,16 @@ func (r *Raft) HandleAppendEntries(args AppendEntriesArgs) AppendEntriesReply {
 		r.mu.Unlock()
 		return reply
 	}
+	if args.PrevLogIndex < r.logOffset {
+		reply.ConflictIndex = r.logOffset + 1
+		r.mu.Unlock()
+		return reply
+	}
 	if args.PrevLogIndex >= 0 {
-		if r.log[args.PrevLogIndex].Term != args.PrevLogTerm {
-			conflictTerm := r.log[args.PrevLogIndex].Term
+		if r.termAt(args.PrevLogIndex) != args.PrevLogTerm {
+			conflictTerm := r.termAt(args.PrevLogIndex)
 			idx := args.PrevLogIndex
-			for idx > 0 && r.log[idx-1].Term == conflictTerm {
+			for idx > r.logOffset && r.termAt(idx-1) == conflictTerm {
 				idx--
 			}
 			reply.ConflictTerm = conflictTerm
@@ -371,8 +435,9 @@ func (r *Raft) HandleAppendEntries(args AppendEntriesArgs) AppendEntriesReply {
 	for i, entry := range args.Entries {
 		idx := args.PrevLogIndex + 1 + i
 		if idx <= r.lastLogIndex() {
-			if r.log[idx].Term != entry.Term {
-				r.log = append(r.log[:idx], args.Entries[i:]...)
+			if r.termAt(idx) != entry.Term {
+				cut := r.logIndexToSlice(idx)
+				r.log = append(r.log[:cut], args.Entries[i:]...)
 				r.persistLocked()
 				break
 			}
@@ -432,9 +497,13 @@ func (r *Raft) sendAppendEntries(peerID string) {
 		nextIdx = r.lastLogIndex() + 1
 		r.nextIndex[peerID] = nextIdx
 	}
+	if nextIdx <= r.logOffset {
+		nextIdx = r.logOffset + 1
+		r.nextIndex[peerID] = nextIdx
+	}
 	prevIdx := nextIdx - 1
-	prevTerm := r.log[prevIdx].Term
-	entries := append([]LogEntry(nil), r.log[nextIdx:]...)
+	prevTerm := r.termAt(prevIdx)
+	entries := append([]LogEntry(nil), r.log[r.logIndexToSlice(nextIdx):]...)
 	args := AppendEntriesArgs{
 		Term:         r.currentTerm,
 		LeaderID:     r.id,
@@ -498,7 +567,7 @@ func (r *Raft) applyCommitted() {
 			return
 		}
 		r.lastApplied++
-		entry := r.log[r.lastApplied]
+		entry := r.log[r.logIndexToSlice(r.lastApplied)]
 		ch := r.notifyCh[r.lastApplied]
 		if ch != nil {
 			delete(r.notifyCh, r.lastApplied)
@@ -523,7 +592,7 @@ func (r *Raft) advanceCommitIndex() {
 	advanced := false
 	for idx := r.commitIndex + 1; idx <= lastIdx; idx++ {
 		// Only commit entries from current term (Raft safety rule).
-		if r.log[idx].Term != r.currentTerm {
+		if r.termAt(idx) != r.currentTerm {
 			continue
 		}
 		count := 1 // self
@@ -551,7 +620,7 @@ func (r *Raft) quorumSize() int {
 }
 
 func (r *Raft) lastLogIndex() int {
-	return len(r.log) - 1
+	return r.logOffset + len(r.log) - 1
 }
 
 func (r *Raft) lastLogTerm() int {
@@ -559,6 +628,17 @@ func (r *Raft) lastLogTerm() int {
 		return 0
 	}
 	return r.log[len(r.log)-1].Term
+}
+
+func (r *Raft) termAt(index int) int {
+	if index < r.logOffset || index > r.lastLogIndex() {
+		return -1
+	}
+	return r.log[r.logIndexToSlice(index)].Term
+}
+
+func (r *Raft) logIndexToSlice(index int) int {
+	return index - r.logOffset
 }
 
 func (r *Raft) isUpToDate(lastIndex, lastTerm int) bool {
@@ -617,17 +697,18 @@ func (r *Raft) persistLocked() error {
 		VotedFor:    r.votedFor,
 		Log:         r.log,
 		CommitIndex: r.commitIndex,
+		Snapshot:    r.snapshot,
 	}
 	return r.storage.Save(state)
 }
 
 func (r *Raft) lastIndexOfTerm(term int) int {
-	for i := r.lastLogIndex(); i >= 1; i-- {
-		if r.log[i].Term == term {
+	for i := r.lastLogIndex(); i >= r.logOffset; i-- {
+		if r.termAt(i) == term {
 			return i
 		}
 	}
-	return 0
+	return -1
 }
 
 func min(a, b int) int {
