@@ -57,6 +57,29 @@ func TestRequestVoteGrantsWhenUpToDate(t *testing.T) {
 	}
 }
 
+func TestLeaderStepsDownOnHigherTermRequestVote(t *testing.T) {
+	r := newTestRaft("n1")
+	r.state = Leader
+	r.currentTerm = 2
+
+	reply := r.HandleRequestVote(RequestVoteArgs{
+		Term:         3,
+		CandidateID:  "n2",
+		LastLogIndex: 0,
+		LastLogTerm:  0,
+	})
+
+	if !reply.VoteGranted {
+		t.Fatalf("expected vote granted")
+	}
+	if r.state != Follower {
+		t.Fatalf("expected follower state, got %v", r.state)
+	}
+	if r.currentTerm != 3 {
+		t.Fatalf("expected term 3, got %d", r.currentTerm)
+	}
+}
+
 func TestAppendEntriesRejectsStaleTerm(t *testing.T) {
 	r := newTestRaft("n1")
 	r.currentTerm = 3

@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -83,6 +84,45 @@ func TestFollowerStartsElectionAfterHeartbeatsStop(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("expected follower to start election after heartbeats stop")
+}
+
+func TestHeartbeatReplicatesEntryWithFakeClock(t *testing.T) {
+	clock := NewFakeClock(time.Unix(0, 0))
+	nodes, _ := newFakeCluster(t, 2, clock, 200, 20)
+	defer stopCluster(nodes)
+
+	nodes[0].TriggerElection()
+	leader := waitForSingleLeader(t, nodes, 200*time.Millisecond)
+
+	index, term, ok := leader.Start([]byte("set x 1"))
+	if !ok {
+		t.Fatalf("expected leader start")
+	}
+
+	clock.Advance(50 * time.Millisecond)
+	time.Sleep(5 * time.Millisecond)
+
+	_, isLeader := leader.State()
+	if !isLeader {
+		t.Fatalf("expected leader to remain leader")
+	}
+
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		nodes[1].mu.Lock()
+		hasEntry := nodes[1].lastLogIndex() >= index
+		nodes[1].mu.Unlock()
+		if hasEntry {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if err := leader.WaitForCommit(ctx, index, term); err != nil {
+		t.Fatalf("expected commit, got %v", err)
+	}
 }
 
 func newFakeCluster(t *testing.T, size int, clock *FakeClock, electionTimeout, heartbeatInterval int) ([]*Raft, *LocalTransport) {
