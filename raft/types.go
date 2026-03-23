@@ -100,4 +100,5 @@ type Config struct {
 	HeartbeatInterval int // milliseconds
 	Clock             Clock
 	Debug             bool
+	Verbose           bool
 }

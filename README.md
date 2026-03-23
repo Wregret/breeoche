@@ -46,7 +46,8 @@ Terminal 3:
 
 ## Server Config Notes
 - Automatic snapshots are entry-count based. Use `--snapshot-threshold` to change how many new log entries trigger a snapshot (default: 100).
-- Enable verbose logging of operations and Raft state changes with `--debug`.
+- Enable logging of operations and Raft state changes with `--debug`.
+- Use `--verbose` for per-RPC and HTTP request tracing (implies `--debug`).
 
 ## CLI Commands
 - `ping` — health check

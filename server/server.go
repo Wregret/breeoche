@@ -24,6 +24,7 @@ type Config struct {
 	DataDir           string
 	SnapshotThreshold int
 	Debug             bool
+	Verbose           bool
 }
 
 // Server hosts the KV API and Raft RPC endpoints.
@@ -38,6 +39,7 @@ type Server struct {
 
 	snapshotThreshold int
 	debug             bool
+	verbose           bool
 
 	applyMu      sync.Mutex
 	applyWaiters map[int]chan error
@@ -82,7 +84,8 @@ func NewServer(cfg Config) (*Server, error) {
 		Transport: transport,
 		Storage:   storage,
 		ApplyCh:   applyCh,
-		Debug:     cfg.Debug,
+		Debug:     cfg.Debug || cfg.Verbose,
+		Verbose:   cfg.Verbose,
 	})
 	if err != nil {
 		return nil, err
@@ -98,7 +101,8 @@ func NewServer(cfg Config) (*Server, error) {
 		applyWaiters:      map[int]chan error{},
 		applyResults:      map[int]error{},
 		snapshotThreshold: cfg.SnapshotThreshold,
-		debug:             cfg.Debug,
+		debug:             cfg.Debug || cfg.Verbose,
+		verbose:           cfg.Verbose,
 	}
 	if err := s.restoreSnapshot(); err != nil {
 		return nil, err
@@ -124,6 +128,7 @@ func (s *Server) Start() error {
 
 	log.Println("start server on: " + s.addr)
 	s.debugf("debug logging enabled")
+	s.verbosef("verbose logging enabled")
 	return http.ListenAndServe(s.addr, r)
 }
 
@@ -138,6 +143,7 @@ func getKey(r *http.Request) string {
 }
 
 func (s *Server) getHandler(w http.ResponseWriter, r *http.Request) {
+	s.verbosef("http %s %s", r.Method, r.URL.Path)
 	if s.redirectIfNotLeader(w, r) {
 		return
 	}
@@ -194,6 +200,7 @@ func (s *Server) applyCommand(w http.ResponseWriter, r *http.Request, cmd kv.Com
 		return
 	}
 
+	s.verbosef("http %s %s op=%s key=%s", r.Method, r.URL.Path, cmd.Op, cmd.Key)
 	s.debugf("command op=%s key=%s", cmd.Op, cmd.Key)
 	data, err := kv.EncodeCommand(cmd)
 	if err != nil {
@@ -387,7 +394,16 @@ func (s *Server) debugf(format string, args ...interface{}) {
 	log.Printf("server[%s] "+format, allArgs...)
 }
 
+func (s *Server) verbosef(format string, args ...interface{}) {
+	if !s.verbose {
+		return
+	}
+	allArgs := append([]interface{}{s.id}, args...)
+	log.Printf("server[%s] "+format, allArgs...)
+}
+
 func (s *Server) requestVoteHandler(w http.ResponseWriter, r *http.Request) {
+	s.verbosef("http %s %s", r.Method, r.URL.Path)
 	var args raft.RequestVoteArgs
 	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -399,6 +415,7 @@ func (s *Server) requestVoteHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) appendEntriesHandler(w http.ResponseWriter, r *http.Request) {
+	s.verbosef("http %s %s", r.Method, r.URL.Path)
 	var args raft.AppendEntriesArgs
 	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -410,6 +427,7 @@ func (s *Server) appendEntriesHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) installSnapshotHandler(w http.ResponseWriter, r *http.Request) {
+	s.verbosef("http %s %s", r.Method, r.URL.Path)
 	var args raft.InstallSnapshotArgs
 	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
 		w.WriteHeader(http.StatusBadRequest)

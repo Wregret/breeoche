@@ -51,6 +51,7 @@ type Raft struct {
 	leaderID string
 	rand     *rand.Rand
 	debug    bool
+	verbose  bool
 }
 
 // NewRaft creates a Raft node with the provided configuration.
@@ -111,7 +112,8 @@ func NewRaft(cfg Config) (*Raft, error) {
 		resetElectionCh:   make(chan struct{}, 1),
 		stopCh:            make(chan struct{}),
 		rand:              rand.New(rand.NewSource(time.Now().UnixNano())),
-		debug:             cfg.Debug,
+		debug:             cfg.Debug || cfg.Verbose,
+		verbose:           cfg.Verbose,
 	}
 
 	if r.commitIndex < r.logOffset {
@@ -279,6 +281,7 @@ func (r *Raft) HandleRequestVote(args RequestVoteArgs) RequestVoteReply {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	r.verbosef("request vote recv candidate=%s term=%d lastIndex=%d lastTerm=%d", args.CandidateID, args.Term, args.LastLogIndex, args.LastLogTerm)
 	reply := RequestVoteReply{Term: r.currentTerm, VoteGranted: false}
 	if args.Term < r.currentTerm {
 		return reply
@@ -375,6 +378,7 @@ func (r *Raft) startElection() {
 			if r.transport == nil {
 				return
 			}
+			r.verbosef("request vote send peer=%s term=%d lastIndex=%d lastTerm=%d", peerID, term, lastIndex, lastTerm)
 			ctx, cancel := context.WithTimeout(context.Background(), r.electionTimeout)
 			defer cancel()
 			reply, err := r.transport.RequestVote(ctx, peerID, RequestVoteArgs{
@@ -414,6 +418,7 @@ func (r *Raft) startElection() {
 func (r *Raft) HandleAppendEntries(args AppendEntriesArgs) AppendEntriesReply {
 	r.mu.Lock()
 
+	r.verbosef("append entries recv leader=%s term=%d prevIndex=%d prevTerm=%d entries=%d commit=%d", args.LeaderID, args.Term, args.PrevLogIndex, args.PrevLogTerm, len(args.Entries), args.LeaderCommit)
 	reply := AppendEntriesReply{Term: r.currentTerm, Success: false}
 	if args.Term < r.currentTerm {
 		r.mu.Unlock()
@@ -489,6 +494,7 @@ func (r *Raft) HandleAppendEntries(args AppendEntriesArgs) AppendEntriesReply {
 // HandleInstallSnapshot processes an InstallSnapshot RPC.
 func (r *Raft) HandleInstallSnapshot(args InstallSnapshotArgs) InstallSnapshotReply {
 	r.mu.Lock()
+	r.verbosef("install snapshot recv leader=%s index=%d term=%d bytes=%d", args.LeaderID, args.LastIncludedIndex, args.LastIncludedTerm, len(args.Data))
 	reply := InstallSnapshotReply{Term: r.currentTerm}
 	if args.Term < r.currentTerm {
 		r.mu.Unlock()
@@ -587,6 +593,7 @@ func (r *Raft) sendAppendEntries(peerID string) {
 	}
 	r.mu.Unlock()
 
+	r.verbosef("append entries send peer=%s prevIndex=%d prevTerm=%d entries=%d commit=%d", peerID, prevIdx, prevTerm, len(entries), args.LeaderCommit)
 	ctx, cancel := context.WithTimeout(context.Background(), r.heartbeatInterval)
 	defer cancel()
 	reply, err := r.transport.AppendEntries(ctx, peerID, args)
@@ -616,6 +623,7 @@ func (r *Raft) sendInstallSnapshot(peerID string) {
 	}
 	r.mu.Unlock()
 
+	r.verbosef("install snapshot send peer=%s index=%d term=%d bytes=%d", peerID, args.LastIncludedIndex, args.LastIncludedTerm, len(args.Data))
 	ctx, cancel := context.WithTimeout(context.Background(), r.heartbeatInterval)
 	defer cancel()
 	reply, err := r.transport.InstallSnapshot(ctx, peerID, args)
@@ -833,6 +841,14 @@ func (r *Raft) lastIndexOfTerm(term int) int {
 
 func (r *Raft) debugf(format string, args ...interface{}) {
 	if !r.debug {
+		return
+	}
+	allArgs := append([]interface{}{r.id}, args...)
+	log.Printf("raft[%s] "+format, allArgs...)
+}
+
+func (r *Raft) verbosef(format string, args ...interface{}) {
+	if !r.verbose {
 		return
 	}
 	allArgs := append([]interface{}{r.id}, args...)

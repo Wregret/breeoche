@@ -16,6 +16,7 @@ var (
 	dataDir           string
 	snapshotThreshold int
 	debug             bool
+	verbose           bool
 )
 
 var ServerCmd = &cobra.Command{
@@ -39,6 +40,7 @@ var ServerCmd = &cobra.Command{
 			DataDir:           dataDir,
 			SnapshotThreshold: snapshotThreshold,
 			Debug:             debug,
+			Verbose:           verbose,
 		})
 		if err != nil {
 			return err
@@ -54,7 +56,8 @@ func init() {
 	ServerCmd.Flags().StringVar(&peers, "peers", "", "comma-separated list of id=host:port")
 	ServerCmd.Flags().StringVar(&dataDir, "data-dir", "data", "directory for raft state")
 	ServerCmd.Flags().IntVar(&snapshotThreshold, "snapshot-threshold", 100, "entries between automatic snapshots")
-	ServerCmd.Flags().BoolVar(&debug, "debug", false, "enable verbose debug logging")
+	ServerCmd.Flags().BoolVar(&debug, "debug", false, "enable debug logging")
+	ServerCmd.Flags().BoolVar(&verbose, "verbose", false, "enable verbose logging (implies debug)")
 }
 
 func parsePeers(raw string) (map[string]string, error) {
