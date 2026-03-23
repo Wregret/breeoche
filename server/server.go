@@ -103,6 +103,7 @@ func (s *Server) Start() error {
 	r.HandleFunc("/key/{key}", s.postHandler).Methods(http.MethodPost)
 	r.HandleFunc("/key/{key}", s.putHandler).Methods(http.MethodPut)
 	r.HandleFunc("/key/{key}", s.deleteHandler).Methods(http.MethodDelete)
+	r.HandleFunc("/health", s.healthHandler).Methods(http.MethodGet)
 	r.HandleFunc("/raft/request-vote", s.requestVoteHandler).Methods(http.MethodPost)
 	r.HandleFunc("/raft/append-entries", s.appendEntriesHandler).Methods(http.MethodPost)
 
@@ -165,6 +166,11 @@ func (s *Server) deleteHandler(w http.ResponseWriter, r *http.Request) {
 	key := getKey(r)
 	cmd := kv.Command{Op: kv.OpDelete, Key: key}
 	s.applyCommand(w, r, cmd)
+}
+
+func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
+	status := s.raft.Status()
+	writeJSON(w, status)
 }
 
 func (s *Server) applyCommand(w http.ResponseWriter, r *http.Request, cmd kv.Command) {

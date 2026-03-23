@@ -13,6 +13,7 @@
 - Leader election: randomized timeouts with self-vote; majority wins.
 - Log replication: leader tracks `nextIndex` and `matchIndex` for followers.
 - Apply path: committed entries are delivered on `applyCh` and applied to the KV store.
+- Status: `GET /health` returns a Raft status snapshot (`id`, `term`, `state`, `leader_id`, `commit_index`, `last_applied`, `last_log_index`).
 
 ## Server Flow
 1. External HTTP write arrives.
@@ -26,6 +27,7 @@
 - `raft/cluster_test.go`: in-memory transport tests for leader election and replication.
 - `kv/kv_test.go`: state machine tests (set/insert/delete + codec).
 - `server/server_test.go`: single-node integration tests with Raft apply.
+- `server/health_test.go`: health endpoint tests.
 
 Run tests with:
 - `go test ./...`

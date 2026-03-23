@@ -4,7 +4,7 @@
 Breeoche is a small key/value service backed by a Raft log. Writes go through the Raft leader; followers will redirect requests to the current leader.
 
 ## Build
-1. `go build -o breeoche ./...`
+1. `/usr/local/go/bin/go build -o breeoche ./...`
 2. The binary `breeoche` will be created in the repository root.
 
 ## Start a 3-Node Cluster (Localhost)
@@ -33,6 +33,7 @@ If you point the client at a follower, it will follow HTTP redirects to the curr
 
 ## HTTP API
 - `GET /ping` -> `pong!`
+- `GET /health` -> Raft status snapshot
 - `GET /key/{key}`
 - `POST /key/{key}` (body = value)
 - `PUT /key/{key}` (body = value)
