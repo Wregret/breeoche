@@ -24,6 +24,8 @@
 4. Entry is committed, then applied to the KV store.
 5. Handler returns success (or conflict for insert/delete).
 
+Enable verbose tracing by passing `--debug` to the server CLI. This logs operations and Raft state transitions with node IDs.
+
 ## Tests
 - `raft/raft_test.go`: core Raft logic tests (vote rules, append conflict, commit rules, Start behavior).
 - `raft/cluster_test.go`: in-memory transport tests for leader election and replication.

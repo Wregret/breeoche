@@ -3,6 +3,7 @@ package raft
 import (
 	"context"
 	"errors"
+	"log"
 	"math/rand"
 	"sync"
 	"time"
@@ -49,6 +50,7 @@ type Raft struct {
 
 	leaderID string
 	rand     *rand.Rand
+	debug    bool
 }
 
 // NewRaft creates a Raft node with the provided configuration.
@@ -109,6 +111,7 @@ func NewRaft(cfg Config) (*Raft, error) {
 		resetElectionCh:   make(chan struct{}, 1),
 		stopCh:            make(chan struct{}),
 		rand:              rand.New(rand.NewSource(time.Now().UnixNano())),
+		debug:             cfg.Debug,
 	}
 
 	if r.commitIndex < r.logOffset {
@@ -185,6 +188,7 @@ func (r *Raft) Start(command []byte) (int, int, bool) {
 	ch := make(chan struct{})
 	r.notifyCh[index] = ch
 	_ = r.persistLocked()
+	r.debugf("append entry index=%d term=%d", index, term)
 	r.mu.Unlock()
 
 	r.advanceCommitIndex()
@@ -198,6 +202,7 @@ func (r *Raft) Snapshot(index int, data []byte) error {
 	defer r.mu.Unlock()
 
 	if index <= r.logOffset {
+		r.debugf("snapshot skip index=%d logOffset=%d", index, r.logOffset)
 		return nil
 	}
 	if index > r.commitIndex || index > r.lastLogIndex() {
@@ -234,6 +239,7 @@ func (r *Raft) Snapshot(index int, data []byte) error {
 		}
 	}
 
+	r.debugf("snapshot created index=%d term=%d logOffset=%d logLen=%d", index, term, r.logOffset, len(r.log))
 	return r.persistLocked()
 }
 
@@ -286,6 +292,7 @@ func (r *Raft) HandleRequestVote(args RequestVoteArgs) RequestVoteReply {
 		r.persistLocked()
 		reply.VoteGranted = true
 		reply.Term = r.currentTerm
+		r.debugf("vote granted to %s term=%d", args.CandidateID, r.currentTerm)
 		r.resetElectionTimerLocked()
 		return reply
 	}
@@ -343,6 +350,7 @@ func (r *Raft) startElection() {
 	r.currentTerm++
 	r.votedFor = r.id
 	term := r.currentTerm
+	r.debugf("start election term=%d", term)
 	lastIndex := r.lastLogIndex()
 	lastTerm := r.lastLogTerm()
 	_ = r.persistLocked()
@@ -515,6 +523,7 @@ func (r *Raft) HandleInstallSnapshot(args InstallSnapshotArgs) InstallSnapshotRe
 		r.lastApplied = args.LastIncludedIndex
 	}
 	_ = r.persistLocked()
+	r.debugf("install snapshot index=%d term=%d", args.LastIncludedIndex, args.LastIncludedTerm)
 	reply.Term = r.currentTerm
 	r.mu.Unlock()
 
@@ -719,6 +728,7 @@ func (r *Raft) advanceCommitIndex() {
 	}
 	r.mu.Unlock()
 	if advanced {
+		r.debugf("commit advanced to %d", r.commitIndex)
 		r.applyCommitted()
 	}
 }
@@ -769,6 +779,7 @@ func (r *Raft) becomeLeaderLocked() {
 	}
 	r.matchIndex[r.id] = lastIdx
 	r.nextIndex[r.id] = lastIdx + 1
+	r.debugf("became leader term=%d", r.currentTerm)
 }
 
 func (r *Raft) becomeFollowerLocked(term int) {
@@ -777,6 +788,7 @@ func (r *Raft) becomeFollowerLocked(term int) {
 		r.currentTerm = term
 		r.votedFor = ""
 	}
+	r.debugf("became follower term=%d", r.currentTerm)
 	r.persistLocked()
 }
 
@@ -817,6 +829,14 @@ func (r *Raft) lastIndexOfTerm(term int) int {
 		}
 	}
 	return -1
+}
+
+func (r *Raft) debugf(format string, args ...interface{}) {
+	if !r.debug {
+		return
+	}
+	allArgs := append([]interface{}{r.id}, args...)
+	log.Printf("raft[%s] "+format, allArgs...)
 }
 
 func min(a, b int) int {

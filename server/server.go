@@ -23,6 +23,7 @@ type Config struct {
 	Peers             map[string]string
 	DataDir           string
 	SnapshotThreshold int
+	Debug             bool
 }
 
 // Server hosts the KV API and Raft RPC endpoints.
@@ -36,6 +37,7 @@ type Server struct {
 	applyCh chan raft.ApplyMsg
 
 	snapshotThreshold int
+	debug             bool
 
 	applyMu      sync.Mutex
 	applyWaiters map[int]chan error
@@ -80,6 +82,7 @@ func NewServer(cfg Config) (*Server, error) {
 		Transport: transport,
 		Storage:   storage,
 		ApplyCh:   applyCh,
+		Debug:     cfg.Debug,
 	})
 	if err != nil {
 		return nil, err
@@ -95,6 +98,7 @@ func NewServer(cfg Config) (*Server, error) {
 		applyWaiters:      map[int]chan error{},
 		applyResults:      map[int]error{},
 		snapshotThreshold: cfg.SnapshotThreshold,
+		debug:             cfg.Debug,
 	}
 	if err := s.restoreSnapshot(); err != nil {
 		return nil, err
@@ -119,11 +123,12 @@ func (s *Server) Start() error {
 	r.HandleFunc("/raft/install-snapshot", s.installSnapshotHandler).Methods(http.MethodPost)
 
 	log.Println("start server on: " + s.addr)
+	s.debugf("debug logging enabled")
 	return http.ListenAndServe(s.addr, r)
 }
 
 func (s *Server) pingHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("%s!", r.URL.Path[1:])
+	s.debugf("%s!", r.URL.Path[1:])
 	w.Write([]byte("pong!"))
 }
 
@@ -137,7 +142,7 @@ func (s *Server) getHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := getKey(r)
-	log.Printf("get key %s", key)
+	s.debugf("get key %s", key)
 
 	value, ok := s.store.Get(key)
 	if !ok {
@@ -189,6 +194,7 @@ func (s *Server) applyCommand(w http.ResponseWriter, r *http.Request, cmd kv.Com
 		return
 	}
 
+	s.debugf("command op=%s key=%s", cmd.Op, cmd.Key)
 	data, err := kv.EncodeCommand(cmd)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -245,17 +251,20 @@ func (s *Server) redirectIfNotLeader(w http.ResponseWriter, r *http.Request) boo
 	}
 	leaderID := s.raft.LeaderID()
 	if leaderID == "" || leaderID == s.id {
+		s.debugf("leader unknown for %s", r.URL.Path)
 		w.WriteHeader(http.StatusServiceUnavailable)
 		w.Write([]byte("leader unknown"))
 		return true
 	}
 	addr := s.peers[leaderID]
 	if addr == "" {
+		s.debugf("leader address missing for %s", leaderID)
 		w.WriteHeader(http.StatusServiceUnavailable)
 		w.Write([]byte("leader unknown"))
 		return true
 	}
 	target := fmt.Sprintf("http://%s%s", addr, r.URL.RequestURI())
+	s.debugf("redirecting to leader %s", leaderID)
 	http.Redirect(w, r, target, http.StatusTemporaryRedirect)
 	return true
 }
@@ -320,12 +329,18 @@ func (s *Server) applyLoop() {
 			s.applyMu.Unlock()
 		}
 
+		if err != nil {
+			s.debugf("apply decode error index=%d err=%v", msg.Index, err)
+		} else {
+			s.debugf("applied index=%d op=%s key=%s err=%v", msg.Index, cmd.Op, cmd.Key, applyErr)
+		}
 		s.maybeSnapshot(msg.Index)
 	}
 }
 
 func (s *Server) applySnapshot(msg raft.ApplyMsg) {
 	err := s.store.RestoreSnapshot(msg.SnapshotData)
+	s.debugf("apply snapshot index=%d term=%d err=%v", msg.SnapshotIndex, msg.SnapshotTerm, err)
 	s.applyMu.Lock()
 	for idx, ch := range s.applyWaiters {
 		if idx <= msg.SnapshotIndex {
@@ -347,9 +362,12 @@ func (s *Server) maybeSnapshot(index int) {
 	}
 	data, err := s.store.Snapshot()
 	if err != nil {
+		s.debugf("snapshot skipped index=%d err=%v", index, err)
 		return
 	}
-	_ = s.raft.Snapshot(index, data)
+	if err := s.raft.Snapshot(index, data); err == nil {
+		s.debugf("snapshot created index=%d", index)
+	}
 }
 
 func (s *Server) restoreSnapshot() error {
@@ -357,7 +375,16 @@ func (s *Server) restoreSnapshot() error {
 	if snap.LastIncludedIndex == 0 {
 		return nil
 	}
+	s.debugf("restore snapshot index=%d term=%d", snap.LastIncludedIndex, snap.LastIncludedTerm)
 	return s.store.RestoreSnapshot(snap.Data)
+}
+
+func (s *Server) debugf(format string, args ...interface{}) {
+	if !s.debug {
+		return
+	}
+	allArgs := append([]interface{}{s.id}, args...)
+	log.Printf("server[%s] "+format, allArgs...)
 }
 
 func (s *Server) requestVoteHandler(w http.ResponseWriter, r *http.Request) {

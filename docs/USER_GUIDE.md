@@ -20,6 +20,9 @@ Each node writes Raft state to `data/<node-id>/raft.json` by default.
 ## Snapshotting
 Snapshots are taken automatically after a configurable number of new log entries. Use `--snapshot-threshold` to tune the interval (default: 100).
 
+## Debugging
+Use `--debug` to log every operation and Raft state transition to the terminal.
+
 ## CLI Usage
 1. Ping:
    `./breeoche ping --addr 127.0.0.1:15213`

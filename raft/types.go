@@ -99,4 +99,5 @@ type Config struct {
 	ElectionTimeout   int // milliseconds
 	HeartbeatInterval int // milliseconds
 	Clock             Clock
+	Debug             bool
 }
