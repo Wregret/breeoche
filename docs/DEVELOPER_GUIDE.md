@@ -23,7 +23,9 @@
 
 ## Tests
 - `raft/raft_test.go`: core Raft logic tests (vote rules, append conflict, commit rules, Start behavior).
+- `raft/cluster_test.go`: in-memory transport tests for leader election and replication.
 - `kv/kv_test.go`: state machine tests (set/insert/delete + codec).
+- `server/server_test.go`: single-node integration tests with Raft apply.
 
 Run tests with:
 - `go test ./...`
@@ -36,4 +38,4 @@ Run tests with:
 ## Operational Caveats
 - No snapshotting or compaction yet; logs can grow without bound.
 - Reads are leader-only (followers redirect).
-- Time-based behavior (elections, heartbeats) is not yet covered by deterministic tests.
+- Time-based behavior (elections, heartbeats) is not yet covered by a fake clock.
