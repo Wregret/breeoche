@@ -65,6 +65,14 @@ All commands accept `--addr` (defaults to `localhost:15213`).
 /usr/local/go/bin/go test ./...
 ```
 
-## Notes
-- Reads are served by the leader only. Followers redirect clients to the current leader.
-- Snapshotting and log compaction are not implemented yet.
+## Limitations
+- No snapshots or log compaction; Raft logs grow without bound.
+- Leader-only reads; no read-index or lease reads yet.
+- Static cluster membership only; no dynamic reconfiguration.
+- No authentication, TLS, or access control.
+- No persistence of the KV state machine beyond Raft log replay.
+- No metrics endpoint beyond `/health`.
+- No fault-injection or chaos testing built in.
+- No WAL or fsync guarantees beyond JSON file writes.
+- No CLI for cluster status (beyond `/health`).
+- No sharding or multi-key transactions.

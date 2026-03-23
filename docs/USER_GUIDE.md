@@ -39,6 +39,18 @@ If you point the client at a follower, it will follow HTTP redirects to the curr
 - `PUT /key/{key}` (body = value)
 - `DELETE /key/{key}`
 
+## Limitations
+- No snapshots or log compaction; Raft logs grow without bound.
+- Leader-only reads; no read-index or lease reads yet.
+- Static cluster membership only; no dynamic reconfiguration.
+- No authentication, TLS, or access control.
+- No persistence of the KV state machine beyond Raft log replay.
+- No metrics endpoint beyond `/health`.
+- No fault-injection or chaos testing built in.
+- No WAL or fsync guarantees beyond JSON file writes.
+- No CLI for cluster status (beyond `/health`).
+- No sharding or multi-key transactions.
+
 ## Operational Notes
 - Reads are served only by the leader to keep the behavior simple and consistent.
 - No snapshots or log compaction yet, so long-running clusters will accumulate log entries.
