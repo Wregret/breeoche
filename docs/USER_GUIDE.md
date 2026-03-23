@@ -1,7 +1,7 @@
 # Breeoche User Guide
 
 ## Overview
-Breeoche is a small key/value service backed by a Raft log. Writes go through the Raft leader; followers will redirect requests to the current leader.
+Breeoche is a small key/value service backed by a Raft log. Writes go through the Raft leader; followers will redirect requests to the current leader. The default client protocol is net/rpc, with the HTTP API kept for compatibility.
 
 ## Build
 1. `/usr/local/go/bin/go build -o breeoche ./...`
@@ -35,9 +35,11 @@ Use `--debug` to log every operation and Raft state transition to the terminal. 
 5. Delete:
    `./breeoche delete --addr 127.0.0.1:15213 mykey`
 
-If you point the client at a follower, it will follow HTTP redirects to the current leader automatically.
+If you point the client at a follower, it will follow leader hints automatically (RPC by default, HTTP redirects when using `--http`).
 
-## HTTP API
+Use `--http` with any CLI command to force the legacy HTTP API instead of RPC.
+
+## HTTP API (Compatibility)
 - `GET /ping` -> `pong!`
 - `GET /health` -> Raft status snapshot
 - `GET /key/{key}`

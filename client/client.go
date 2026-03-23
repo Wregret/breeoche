@@ -13,20 +13,20 @@ const (
 	maxRedirects      = 3
 )
 
-// Client is a simple HTTP client for Breeoche.
-type Client struct {
+// HTTPClient is a simple HTTP client for Breeoche.
+type HTTPClient struct {
 	addr       string
 	httpClient *http.Client
 }
 
-func NewClient(addr string) *Client {
+func NewHTTPClient(addr string) *HTTPClient {
 	if addr == "" {
 		addr = defaultServerAddr
 	}
-	return &Client{addr: addr, httpClient: &http.Client{}}
+	return &HTTPClient{addr: addr, httpClient: &http.Client{}}
 }
 
-func (c *Client) Ping() (string, error) {
+func (c *HTTPClient) Ping() (string, error) {
 	resBody, status, err := c.doRequest(http.MethodGet, PathWithPing(PathWithHttp(c.addr)), nil)
 	if err != nil {
 		return "", err
@@ -37,7 +37,7 @@ func (c *Client) Ping() (string, error) {
 	return string(resBody), nil
 }
 
-func (c *Client) Get(key string) (string, error) {
+func (c *HTTPClient) Get(key string) (string, error) {
 	url := PathWithKey(PathWithHttp(c.addr), key)
 	resBody, status, err := c.doRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -49,7 +49,7 @@ func (c *Client) Get(key string) (string, error) {
 	return string(resBody), nil
 }
 
-func (c *Client) Set(key string, value string) error {
+func (c *HTTPClient) Set(key string, value string) error {
 	url := PathWithKey(PathWithHttp(c.addr), key)
 	body := []byte(value)
 	resBody, status, err := c.doRequest(http.MethodPost, url, body)
@@ -62,7 +62,7 @@ func (c *Client) Set(key string, value string) error {
 	return nil
 }
 
-func (c *Client) Insert(key string, value string) error {
+func (c *HTTPClient) Insert(key string, value string) error {
 	url := PathWithKey(PathWithHttp(c.addr), key)
 	body := []byte(value)
 	resBody, status, err := c.doRequest(http.MethodPut, url, body)
@@ -75,7 +75,7 @@ func (c *Client) Insert(key string, value string) error {
 	return nil
 }
 
-func (c *Client) Delete(key string) error {
+func (c *HTTPClient) Delete(key string) error {
 	url := PathWithKey(PathWithHttp(c.addr), key)
 	resBody, status, err := c.doRequest(http.MethodDelete, url, nil)
 	if err != nil {
@@ -87,7 +87,7 @@ func (c *Client) Delete(key string) error {
 	return nil
 }
 
-func (c *Client) doRequest(method, url string, body []byte) ([]byte, int, error) {
+func (c *HTTPClient) doRequest(method, url string, body []byte) ([]byte, int, error) {
 	currentURL := url
 	payload := body
 	for i := 0; i < maxRedirects; i++ {

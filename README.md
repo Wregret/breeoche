@@ -6,6 +6,7 @@ Breeoche is a lightweight key/value store built for learning distributed systems
 - Raft-based replication for writes
 - Leader-only reads (followers redirect)
 - Simple HTTP API + CLI
+- net/rpc API (default) with HTTP compatibility
 - Local, file-backed Raft state (`data/<node-id>/raft.json`)
 - Health endpoint with Raft status (`GET /health`)
 - Automatic log compaction via snapshots
@@ -56,9 +57,14 @@ Terminal 3:
 - `insert <key> <value>` — insert only (409 if key exists)
 - `delete <key>` — delete key
 
-All commands accept `--addr` (defaults to `localhost:15213`).
+All commands accept `--addr` (defaults to `localhost:15213`). Add `--http` to force the legacy HTTP API instead of RPC.
 
-## HTTP API
+## RPC API (Default)
+Breeoche serves net/rpc over HTTP at `/rpc` on the same address. Service names:
+- `KVService`: `Ping`, `Get`, `Set`, `Insert`, `Delete`, `Health`
+- `RaftService`: `RequestVote`, `AppendEntries`, `InstallSnapshot`
+
+## HTTP API (Compatibility)
 - `GET /ping` -> `pong!`
 - `GET /health` -> Raft status snapshot
 - `GET /key/{key}`

@@ -2,14 +2,15 @@
 
 ## Architecture
 - `raft`: Core Raft implementation (election, log replication, commit tracking).
-- `server`: HTTP API and Raft RPC endpoints, applies committed log entries to the KV store.
+- `server`: RPC + HTTP API endpoints, applies committed log entries to the KV store.
 - `kv`: In-memory key/value state machine.
-- `client`: CLI-friendly HTTP client with leader redirects.
+- `client`: CLI-friendly RPC client (default) with HTTP compatibility.
 - `cmd`: Cobra commands for server and client operations.
+- `rpcapi`: Shared RPC request/response types and constants.
 
 ## Raft Details
 - Persistent state: `currentTerm`, `votedFor`, `log`, `commitIndex`, and `snapshot` are stored in JSON at `data/<node-id>/raft.json`.
-- RPCs: `RequestVote`, `AppendEntries`, and `InstallSnapshot` over HTTP JSON.
+- RPCs: `RequestVote`, `AppendEntries`, and `InstallSnapshot` over net/rpc (default). HTTP JSON endpoints remain for compatibility.
 - Leader election: randomized timeouts with self-vote; majority wins.
 - Log replication: leader tracks `nextIndex` and `matchIndex` for followers.
 - Log compaction: snapshots trim the log. The server triggers snapshots automatically based on entry count; `Snapshot(index, data)` is available for manual compaction.
@@ -18,7 +19,7 @@
 - Clock abstraction: Raft accepts a `Clock` implementation so tests can use a deterministic `FakeClock`.
 
 ## Server Flow
-1. External HTTP write arrives.
+1. External RPC/HTTP write arrives.
 2. Leader appends entry via `raft.Start`.
 3. Leader replicates to followers.
 4. Entry is committed, then applied to the KV store.
@@ -32,10 +33,12 @@ Enable tracing with `--debug` to log operations and Raft state transitions with 
 - `raft/clock_test.go`: deterministic election and heartbeat tests using `FakeClock`.
 - `raft/snapshot_test.go`: snapshot/log compaction tests.
 - `raft/install_snapshot_test.go`: InstallSnapshot apply tests.
+- `raft/verbose_test.go`: verbose logging tests for Raft RPC tracing.
 - `kv/kv_test.go`: state machine tests (set/insert/delete + codec).
 - `server/server_test.go`: single-node integration tests with Raft apply.
 - `server/health_test.go`: health endpoint tests.
 - `server/snapshot_test.go`: automatic snapshot trigger tests.
+- `server/verbose_test.go`: verbose logging tests for server RPC/HTTP tracing.
 
 Run tests with:
 - `go test ./...`

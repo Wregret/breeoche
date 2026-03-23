@@ -2,7 +2,6 @@ package client_cmd
 
 import (
 	"fmt"
-	"github.com/Wregret/breeoche/client"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +16,7 @@ var InsertCmd = &cobra.Command{
 func doInsert(cmd *cobra.Command, args []string) {
 	key := args[0]
 	value := args[1]
-	c := client.NewClient(serverAddr)
+	c := newClient()
 	err := c.Insert(key, value)
 	if err != nil {
 		fmt.Println(err)

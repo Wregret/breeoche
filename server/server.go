@@ -77,7 +77,7 @@ func NewServer(cfg Config) (*Server, error) {
 
 	applyCh := make(chan raft.ApplyMsg, 256)
 	storage := raft.NewFileStorage(filepath.Join(cfg.DataDir, cfg.ID, "raft.json"))
-	transport := raft.NewHTTPTransport(raftPeers)
+	transport := raft.NewRPCTransport(raftPeers)
 	r, err := raft.NewRaft(raft.Config{
 		ID:        cfg.ID,
 		Peers:     raftPeers,
@@ -115,7 +115,22 @@ func (s *Server) Start() error {
 	go s.applyLoop()
 	s.raft.Run()
 
+	r, err := s.buildRouter()
+	if err != nil {
+		return err
+	}
+
+	log.Println("start server on: " + s.addr)
+	s.debugf("debug logging enabled")
+	s.verbosef("verbose logging enabled")
+	return http.ListenAndServe(s.addr, r)
+}
+
+func (s *Server) buildRouter() (*mux.Router, error) {
 	r := mux.NewRouter()
+	if err := s.registerRPC(r); err != nil {
+		return nil, err
+	}
 	r.HandleFunc("/ping", s.pingHandler)
 	r.HandleFunc("/key/{key}", s.getHandler).Methods(http.MethodGet)
 	r.HandleFunc("/key/{key}", s.postHandler).Methods(http.MethodPost)
@@ -125,11 +140,7 @@ func (s *Server) Start() error {
 	r.HandleFunc("/raft/request-vote", s.requestVoteHandler).Methods(http.MethodPost)
 	r.HandleFunc("/raft/append-entries", s.appendEntriesHandler).Methods(http.MethodPost)
 	r.HandleFunc("/raft/install-snapshot", s.installSnapshotHandler).Methods(http.MethodPost)
-
-	log.Println("start server on: " + s.addr)
-	s.debugf("debug logging enabled")
-	s.verbosef("verbose logging enabled")
-	return http.ListenAndServe(s.addr, r)
+	return r, nil
 }
 
 func (s *Server) pingHandler(w http.ResponseWriter, r *http.Request) {
@@ -144,19 +155,22 @@ func getKey(r *http.Request) string {
 
 func (s *Server) getHandler(w http.ResponseWriter, r *http.Request) {
 	s.verbosef("http %s %s", r.Method, r.URL.Path)
-	if s.redirectIfNotLeader(w, r) {
+	key := getKey(r)
+	value, leaderAddr, err := s.getValueInternal(r.Context(), key)
+	if errors.Is(err, raft.ErrNotLeader) {
+		s.redirectToLeader(w, r, leaderAddr)
 		return
 	}
-	key := getKey(r)
-	s.debugf("get key %s", key)
-
-	value, ok := s.store.Get(key)
-	if !ok {
+	if errors.Is(err, kv.ErrKeyNotFound) {
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte(fmt.Sprintf("key %s not found", key)))
 		return
 	}
-
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("server error"))
+		return
+	}
 	w.Write([]byte(value))
 }
 
@@ -196,44 +210,26 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) applyCommand(w http.ResponseWriter, r *http.Request, cmd kv.Command) {
-	if s.redirectIfNotLeader(w, r) {
-		return
-	}
-
 	s.verbosef("http %s %s op=%s key=%s", r.Method, r.URL.Path, cmd.Op, cmd.Key)
-	s.debugf("command op=%s key=%s", cmd.Op, cmd.Key)
-	data, err := kv.EncodeCommand(cmd)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("encode error"))
+	applyErr, leaderAddr, err := s.applyCommandInternal(r.Context(), cmd)
+	if errors.Is(err, raft.ErrNotLeader) {
+		s.redirectToLeader(w, r, leaderAddr)
 		return
 	}
-
-	index, term, ok := s.raft.Start(data)
-	if !ok {
-		s.redirectIfNotLeader(w, r)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	defer cancel()
-
-	if err := s.raft.WaitForCommit(ctx, index, term); err != nil {
-		if errors.Is(err, raft.ErrNotLeader) {
-			s.redirectIfNotLeader(w, r)
-			return
-		}
+	if errors.Is(err, context.DeadlineExceeded) {
 		w.WriteHeader(http.StatusGatewayTimeout)
 		w.Write([]byte("commit timeout"))
 		return
 	}
-
-	applyErr := s.waitForApply(ctx, index)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("server error"))
+		return
+	}
 	if applyErr != nil {
 		s.writeApplyError(w, applyErr)
 		return
 	}
-
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -256,24 +252,33 @@ func (s *Server) redirectIfNotLeader(w http.ResponseWriter, r *http.Request) boo
 	if isLeader {
 		return false
 	}
-	leaderID := s.raft.LeaderID()
-	if leaderID == "" || leaderID == s.id {
+	addr := s.leaderAddr()
+	return s.redirectToLeader(w, r, addr)
+}
+
+func (s *Server) redirectToLeader(w http.ResponseWriter, r *http.Request, addr string) bool {
+	if addr == "" {
 		s.debugf("leader unknown for %s", r.URL.Path)
 		w.WriteHeader(http.StatusServiceUnavailable)
 		w.Write([]byte("leader unknown"))
 		return true
 	}
-	addr := s.peers[leaderID]
-	if addr == "" {
-		s.debugf("leader address missing for %s", leaderID)
-		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write([]byte("leader unknown"))
-		return true
-	}
 	target := fmt.Sprintf("http://%s%s", addr, r.URL.RequestURI())
-	s.debugf("redirecting to leader %s", leaderID)
+	s.debugf("redirecting to leader %s", addr)
 	http.Redirect(w, r, target, http.StatusTemporaryRedirect)
 	return true
+}
+
+func (s *Server) leaderAddr() string {
+	leaderID := s.raft.LeaderID()
+	if leaderID == "" || leaderID == s.id {
+		return ""
+	}
+	addr := s.peers[leaderID]
+	if addr == "" {
+		return ""
+	}
+	return addr
 }
 
 func readBody(r *http.Request) (string, error) {
@@ -283,6 +288,53 @@ func readBody(r *http.Request) (string, error) {
 		return "", err
 	}
 	return string(value), nil
+}
+
+func (s *Server) getValueInternal(ctx context.Context, key string) (string, string, error) {
+	_, isLeader := s.raft.State()
+	if !isLeader {
+		return "", s.leaderAddr(), raft.ErrNotLeader
+	}
+	s.debugf("get key %s", key)
+	value, ok := s.store.Get(key)
+	if !ok {
+		return "", "", kv.ErrKeyNotFound
+	}
+	return value, "", nil
+}
+
+func (s *Server) applyCommandInternal(ctx context.Context, cmd kv.Command) (error, string, error) {
+	_, isLeader := s.raft.State()
+	if !isLeader {
+		return nil, s.leaderAddr(), raft.ErrNotLeader
+	}
+
+	s.debugf("command op=%s key=%s", cmd.Op, cmd.Key)
+	data, err := kv.EncodeCommand(cmd)
+	if err != nil {
+		return nil, "", err
+	}
+
+	index, term, ok := s.raft.Start(data)
+	if !ok {
+		return nil, s.leaderAddr(), raft.ErrNotLeader
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	if err := s.raft.WaitForCommit(ctx, index, term); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return nil, s.leaderAddr(), raft.ErrNotLeader
+		}
+		return nil, "", err
+	}
+
+	applyErr := s.waitForApply(ctx, index)
+	if applyErr != nil {
+		return applyErr, "", nil
+	}
+	return nil, "", nil
 }
 
 func (s *Server) waitForApply(ctx context.Context, index int) error {

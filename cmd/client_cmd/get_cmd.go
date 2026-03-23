@@ -2,7 +2,6 @@ package client_cmd
 
 import (
 	"fmt"
-	"github.com/Wregret/breeoche/client"
 	"github.com/spf13/cobra"
 )
 
@@ -16,7 +15,7 @@ var GetCmd = &cobra.Command{
 
 func doGet(cmd *cobra.Command, args []string) {
 	key := args[0]
-	c := client.NewClient(serverAddr)
+	c := newClient()
 	value, err := c.Get(key)
 	if err != nil {
 		fmt.Println(err)
