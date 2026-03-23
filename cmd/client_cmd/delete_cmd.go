@@ -16,11 +16,15 @@ var DeleteCmd = &cobra.Command{
 
 func doDelete(cmd *cobra.Command, args []string) {
 	key := args[0]
-	c := client.NewClient()
+	c := client.NewClient(serverAddr)
 	err := c.Delete(key)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 	fmt.Println("succeed!")
+}
+
+func init() {
+	addServerAddrFlag(DeleteCmd)
 }

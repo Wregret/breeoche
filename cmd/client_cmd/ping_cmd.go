@@ -14,11 +14,15 @@ var PingCmd = &cobra.Command{
 }
 
 func doPing(cmd *cobra.Command, args []string) {
-	c := client.NewClient()
+	c := client.NewClient(serverAddr)
 	value, err := c.Ping()
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 	fmt.Println(value)
+}
+
+func init() {
+	addServerAddrFlag(PingCmd)
 }

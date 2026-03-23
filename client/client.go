@@ -1,122 +1,127 @@
 package client
 
 import (
+	"bytes"
 	"errors"
 	"io/ioutil"
 	"net/http"
-	"strings"
 )
 
 const (
-	serverAddr  = "localhost:15213"
-	contentType = "text/plain"
+	defaultServerAddr = "localhost:15213"
+	contentType       = "text/plain"
+	maxRedirects      = 3
 )
 
-type client struct {
+// Client is a simple HTTP client for Breeoche.
+type Client struct {
+	addr       string
 	httpClient *http.Client
 }
 
-func NewClient() *client {
-	c := &client{httpClient: &http.Client{}}
-	return c
+func NewClient(addr string) *Client {
+	if addr == "" {
+		addr = defaultServerAddr
+	}
+	return &Client{addr: addr, httpClient: &http.Client{}}
 }
 
-func (c *client) Ping() (string, error) {
-	url := PathWithHttp(serverAddr)
-	url = PathWithPing(url)
-	res, err := c.httpClient.Get(url)
+func (c *Client) Ping() (string, error) {
+	resBody, status, err := c.doRequest(http.MethodGet, PathWithPing(PathWithHttp(c.addr)), nil)
 	if err != nil {
 		return "", err
 	}
-	defer res.Body.Close()
-	value, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return "", err
+	if status != http.StatusOK {
+		return "", errors.New(string(resBody))
 	}
-	return string(value), nil
+	return string(resBody), nil
 }
 
-func (c *client) Get(key string) (string, error) {
-	url := PathWithHttp(serverAddr)
-	url = PathWithKey(url, key)
-	res, err := c.httpClient.Get(url)
+func (c *Client) Get(key string) (string, error) {
+	url := PathWithKey(PathWithHttp(c.addr), key)
+	resBody, status, err := c.doRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
-	defer res.Body.Close()
-	msg, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return "", err
+	if status != http.StatusOK {
+		return "", errors.New(string(resBody))
 	}
-	if res.StatusCode != http.StatusOK {
-		return "", errors.New(string(msg))
-	}
-	return string(msg), nil
+	return string(resBody), nil
 }
 
-func (c *client) Set(key string, value string) error {
-	url := PathWithHttp(serverAddr)
-	url = PathWithKey(url, key)
-	res, err := c.httpClient.Post(url, contentType, strings.NewReader(value))
-	defer res.Body.Close()
+func (c *Client) Set(key string, value string) error {
+	url := PathWithKey(PathWithHttp(c.addr), key)
+	body := []byte(value)
+	resBody, status, err := c.doRequest(http.MethodPost, url, body)
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
-	msg, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return err
-	}
-	if res.StatusCode != http.StatusOK {
-		return errors.New(string(msg))
+	if status != http.StatusOK {
+		return errors.New(string(resBody))
 	}
 	return nil
 }
 
-func (c *client) Insert(key string, value string) error {
-	url := PathWithHttp(serverAddr)
-	url = PathWithKey(url, key)
-	req, err := http.NewRequest(http.MethodPut, url, strings.NewReader(value))
+func (c *Client) Insert(key string, value string) error {
+	url := PathWithKey(PathWithHttp(c.addr), key)
+	body := []byte(value)
+	resBody, status, err := c.doRequest(http.MethodPut, url, body)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", contentType)
-	res, err := c.httpClient.Do(req)
-	defer res.Body.Close()
-	if err != nil {
-		return err
-	}
-	defer res.Body.Close()
-	msg, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return err
-	}
-	if res.StatusCode != http.StatusOK {
-		return errors.New(string(msg))
+	if status != http.StatusOK {
+		return errors.New(string(resBody))
 	}
 	return nil
 }
 
-func (c *client) Delete(key string) error {
-	url := PathWithHttp(serverAddr)
-	url = PathWithKey(url, key)
-	req, err := http.NewRequest(http.MethodDelete, url, nil)
+func (c *Client) Delete(key string) error {
+	url := PathWithKey(PathWithHttp(c.addr), key)
+	resBody, status, err := c.doRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", contentType)
-	res, err := c.httpClient.Do(req)
-	defer res.Body.Close()
-	if err != nil {
-		return err
-	}
-	defer res.Body.Close()
-	msg, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return err
-	}
-	if res.StatusCode != http.StatusOK {
-		return errors.New(string(msg))
+	if status != http.StatusOK {
+		return errors.New(string(resBody))
 	}
 	return nil
+}
+
+func (c *Client) doRequest(method, url string, body []byte) ([]byte, int, error) {
+	currentURL := url
+	payload := body
+	for i := 0; i < maxRedirects; i++ {
+		var reader *bytes.Reader
+		if payload != nil {
+			reader = bytes.NewReader(payload)
+		} else {
+			reader = bytes.NewReader(nil)
+		}
+		req, err := http.NewRequest(method, currentURL, reader)
+		if err != nil {
+			return nil, 0, err
+		}
+		if method == http.MethodPost || method == http.MethodPut || method == http.MethodDelete {
+			req.Header.Set("Content-Type", contentType)
+		}
+		res, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, 0, err
+		}
+		data, err := ioutil.ReadAll(res.Body)
+		res.Body.Close()
+		if err != nil {
+			return nil, 0, err
+		}
+		if res.StatusCode == http.StatusTemporaryRedirect || res.StatusCode == http.StatusPermanentRedirect {
+			location := res.Header.Get("Location")
+			if location == "" {
+				return data, res.StatusCode, errors.New("redirect without location")
+			}
+			currentURL = location
+			continue
+		}
+		return data, res.StatusCode, nil
+	}
+	return nil, 0, errors.New("too many redirects")
 }

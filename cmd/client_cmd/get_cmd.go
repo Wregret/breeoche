@@ -16,11 +16,15 @@ var GetCmd = &cobra.Command{
 
 func doGet(cmd *cobra.Command, args []string) {
 	key := args[0]
-	c := client.NewClient()
+	c := client.NewClient(serverAddr)
 	value, err := c.Get(key)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 	fmt.Println(value)
+}
+
+func init() {
+	addServerAddrFlag(GetCmd)
 }

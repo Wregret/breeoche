@@ -1,0 +1,74 @@
+package raft
+
+// State represents the role of a Raft node.
+type State int
+
+const (
+	Follower State = iota
+	Candidate
+	Leader
+)
+
+// LogEntry is a single entry in the Raft log.
+type LogEntry struct {
+	Term    int
+	Command []byte
+}
+
+// RequestVoteArgs is the request for a vote during elections.
+type RequestVoteArgs struct {
+	Term         int
+	CandidateID  string
+	LastLogIndex int
+	LastLogTerm  int
+}
+
+// RequestVoteReply is the response for a RequestVote RPC.
+type RequestVoteReply struct {
+	Term        int
+	VoteGranted bool
+}
+
+// AppendEntriesArgs is the request to replicate log entries (also heartbeat).
+type AppendEntriesArgs struct {
+	Term         int
+	LeaderID     string
+	PrevLogIndex int
+	PrevLogTerm  int
+	Entries      []LogEntry
+	LeaderCommit int
+}
+
+// AppendEntriesReply is the response for AppendEntries RPC.
+type AppendEntriesReply struct {
+	Term    int
+	Success bool
+	// Optional conflict hints for faster backtracking (not required for correctness).
+	ConflictIndex int
+	ConflictTerm  int
+}
+
+// ApplyMsg delivers committed log entries to the state machine.
+type ApplyMsg struct {
+	Index   int
+	Command []byte
+}
+
+// PersistentState is the part of Raft state that must survive crashes.
+type PersistentState struct {
+	CurrentTerm int
+	VotedFor    string
+	Log         []LogEntry
+	CommitIndex int
+}
+
+// Config configures a Raft node.
+type Config struct {
+	ID                string
+	Peers             map[string]string
+	Transport         Transport
+	Storage           Storage
+	ApplyCh           chan ApplyMsg
+	ElectionTimeout   int // milliseconds
+	HeartbeatInterval int // milliseconds
+}

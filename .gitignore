@@ -1,0 +1,8 @@
+# Local working log (do not commit)
+WORKLOG.md
+
+# Build artifacts
+/bin/
+*.exe
+*.out
+*.test

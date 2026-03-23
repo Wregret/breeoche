@@ -17,11 +17,15 @@ var InsertCmd = &cobra.Command{
 func doInsert(cmd *cobra.Command, args []string) {
 	key := args[0]
 	value := args[1]
-	c := client.NewClient()
+	c := client.NewClient(serverAddr)
 	err := c.Insert(key, value)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 	fmt.Println("succeed!")
+}
+
+func init() {
+	addServerAddrFlag(InsertCmd)
 }
