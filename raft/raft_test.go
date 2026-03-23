@@ -103,6 +103,32 @@ func TestAppendEntriesConflictAndAppend(t *testing.T) {
 	}
 }
 
+func TestCandidateStepsDownOnHigherTermAppendEntries(t *testing.T) {
+	r := newTestRaft("n1")
+	r.state = Candidate
+	r.currentTerm = 2
+
+	reply := r.HandleAppendEntries(AppendEntriesArgs{
+		Term:         3,
+		LeaderID:     "n2",
+		PrevLogIndex: 0,
+		PrevLogTerm:  0,
+	})
+
+	if !reply.Success {
+		t.Fatalf("expected append success")
+	}
+	if r.state != Follower {
+		t.Fatalf("expected follower state, got %v", r.state)
+	}
+	if r.currentTerm != 3 {
+		t.Fatalf("expected term 3, got %d", r.currentTerm)
+	}
+	if r.leaderID != "n2" {
+		t.Fatalf("expected leader id n2, got %s", r.leaderID)
+	}
+}
+
 func TestLeaderCommitIndexAdvancesWithMajority(t *testing.T) {
 	r := newTestRaft("n1")
 	r.state = Leader

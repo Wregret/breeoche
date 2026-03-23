@@ -59,6 +59,32 @@ func TestHeartbeatPreventsElectionWithFakeClock(t *testing.T) {
 	}
 }
 
+func TestFollowerStartsElectionAfterHeartbeatsStop(t *testing.T) {
+	clock := NewFakeClock(time.Unix(0, 0))
+	nodes, _ := newFakeCluster(t, 2, clock, 200, 20)
+
+	nodes[0].TriggerElection()
+	leader := waitForSingleLeader(t, nodes, 200*time.Millisecond)
+	if leader.id != "n1" {
+		t.Fatalf("expected leader n1, got %s", leader.id)
+	}
+
+	nodes[0].Stop()
+	defer nodes[1].Stop()
+	time.Sleep(5 * time.Millisecond)
+
+	clock.Advance(500 * time.Millisecond)
+
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if state := nodeState(nodes[1]); state != Follower {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("expected follower to start election after heartbeats stop")
+}
+
 func newFakeCluster(t *testing.T, size int, clock *FakeClock, electionTimeout, heartbeatInterval int) ([]*Raft, *LocalTransport) {
 	t.Helper()
 	transport := NewLocalTransport()
